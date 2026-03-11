@@ -1,0 +1,28 @@
+# mediamtx binary (download separately — see README)
+mediamtx/mediamtx
+mediamtx/mediamtx.exe
+
+# Runtime data
+backend/data/
+data/
+backend/data-smoke/
+backend/data-smoke-*/
+backend/smoke.err.log
+backend/smoke.out.log
+backend/smoke.pid
+
+# Go build output
+backend/*.exe
+backend/rtspanda
+
+# Frontend build output
+frontend/dist/
+frontend/node_modules/
+
+# Embedded frontend (populated by make build / build.ps1); keep .gitkeep so dir exists
+backend/internal/api/web/*
+!backend/internal/api/web/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db

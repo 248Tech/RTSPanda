@@ -1,200 +1,247 @@
 # RTSPanda
 
-**Self-hosted RTSP camera viewer — single binary, zero cloud, full control.**
+**Watch your RTSP cameras in the browser. One app. No cloud. Runs on your machine.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Go](https://img.shields.io/github/go-mod/go-version/248Tech/RTSPanda?filename=backend%2Fgo.mod)](https://go.dev/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react)](https://react.dev/)
 
-RTSPanda turns any RTSP camera into a browser-ready live view with one executable. No SaaS, no account, no data leaving your network. Add cameras via a clean web UI, watch live HLS streams, capture screenshots, record to disk, and plug in AI or motion detectors via webhooks.
+RTSPanda is a small app you run on your PC or server. You add your camera URLs, open a browser, and watch live—no account, no subscription, no data sent to the cloud. You can also record, take screenshots, and hook in your own alerts or motion detection.
 
 ---
 
-## Why RTSPanda?
+## What you need
 
-| You want… | RTSPanda gives you |
-|-----------|--------------------|
-| **Privacy** | Everything runs on your machine. No telemetry, no cloud. |
-| **Simplicity** | One binary. One port. SQLite. No containers required. |
-| **Compatibility** | Works with any RTSP camera (Hikvision, Dahua, Reolink, Amcrest, Axis, Tapo, etc.). |
-| **Efficiency** | Streams are on-demand — cameras are only connected when someone is watching. |
-| **Extensibility** | REST API + alert webhooks ready for motion detection, object detection, or custom automation. |
+- **A computer** (Windows, macOS, or Linux)
+- **Your camera’s RTSP URL** (looks like `rtsp://admin:password@192.168.1.64:554/stream`)
+- **To build once:** Git, Go, and Node.js (we’ll show you how to install them on Windows below)
+
+*Optional:* the **mediamtx** program is what actually pulls the video from your camera. If you don’t add it, RTSPanda still runs and you can add cameras—they’ll just show “offline” until you drop in mediamtx.
 
 ---
 
-## Quick Start
+## Quick Start (any OS)
 
-### Prerequisites
-
-| Tool | Version | Purpose |
-|------|---------|---------|
-| [Go](https://go.dev/dl/) | 1.22+ | Build the backend |
-| [Node.js](https://nodejs.org/) | 18+ | Build the frontend (dev) |
-| [mediamtx](https://github.com/bluenviron/mediamtx/releases) | latest | RTSP → HLS relay (optional; app runs without it, streams show offline) |
-
-### 1. Clone
+**1. Get the code**
 
 ```bash
 git clone https://github.com/248Tech/RTSPanda.git
 cd RTSPanda
 ```
 
-### 2. Get mediamtx (for live video)
+**2. Get mediamtx (so you can see video)**
 
-Download the [mediamtx release](https://github.com/bluenviron/mediamtx/releases) for your OS and place the binary in the repo:
+- Go to [mediamtx releases](https://github.com/bluenviron/mediamtx/releases) and download the zip for your system.
+- Put the `mediamtx` (or `mediamtx.exe` on Windows) file inside the `mediamtx` folder in RTSPanda.
 
-```
-RTSPanda/mediamtx/
-├── mediamtx        # Linux / macOS
-└── mediamtx.exe    # Windows
-```
+**3. Build**
 
-Or set `MEDIAMTX_BIN` to the path of your mediamtx binary.
+- **Windows:** open PowerShell in the RTSPanda folder and run:  
+  `.\build.ps1`
+- **Mac/Linux:** run:  
+  `make build`
 
-### 3. Build
+**4. Run**
 
-**Linux / macOS / Git Bash:**
-```bash
-make build
-# → backend/rtspanda
-```
+- **Windows:**  
+  `.\backend\rtspanda.exe`
+- **Mac/Linux:**  
+  `./backend/rtspanda`
 
-**Windows PowerShell:**
-```powershell
-.\build.ps1
-# → backend\rtspanda.exe
-```
+**5. Open your browser**
 
-### 4. Run
-
-```bash
-./backend/rtspanda          # Linux / macOS
-.\backend\rtspanda.exe     # Windows
-```
-
-Open **http://localhost:8080**. Add a camera in **Settings → Cameras**, then watch it from the dashboard.
+Go to **http://localhost:8080**. Click **Settings** → **Cameras** → **Add Camera**, enter a name and your RTSP URL, then go back to the dashboard and click the camera to watch.
 
 ---
 
-## Features
+## Windows: one-line install (PowerShell 7)
 
-### Live streaming
+One command to clone the repo, install Git/Go/Node (if missing), and build. Paste into PowerShell 7:
 
-- **Dashboard** — Grid of all cameras with status (Online / Connecting / Offline).
-- **Single-camera view** — Full-width HLS player with native controls (play, volume, fullscreen).
-- **On-demand** — mediamtx connects to a camera only when someone is watching; connections close after idle.
+```powershell
+git clone https://github.com/248Tech/RTSPanda.git RTSPanda; cd RTSPanda; .\scripts\install-windows.ps1
+```
 
-### Recording
+To have the script also download mediamtx for you:
 
-- Enable **Record to disk** per camera in Settings.
-- mediamtx writes 1-hour MP4 segments to `{DATA_DIR}/recordings/camera-{id}/`.
-- Browse, download, and delete recordings from the camera detail page.
+```powershell
+git clone https://github.com/248Tech/RTSPanda.git RTSPanda; cd RTSPanda; .\scripts\install-windows.ps1 -DownloadMediamtx
+```
 
-### Screenshots
+**From CMD** (requires Git and PowerShell 7 installed):
 
-- One-click PNG capture from the live stream (button appears on hover over the video).
+```cmd
+git clone https://github.com/248Tech/RTSPanda.git RTSPanda && cd RTSPanda && pwsh -NoProfile -File scripts\install-windows.ps1
+```
 
-### AI & alerts
+*Requires:* For the one-liners you need **PowerShell 7** and **Git** (so we can clone). If Git isn’t installed: [git-scm.com](https://git-scm.com/download/win) or `winget install Git.Git`. The script will try to install Go and Node via `winget` if they’re missing.
 
-- Define **alert rules** per camera (connectivity, motion, object_detection).
-- External scripts or AI systems POST events to `POST /api/v1/alerts/{rule_id}/events`.
-- RTSPanda stores rules and event history; detection logic stays in your stack.
+When the install finishes, run:
 
-### REST API
+```powershell
+.\backend\rtspanda.exe
+```
 
-- **Cameras** — List, create, get, update, delete; stream status + HLS URL per camera.
-- **Recordings** — List, download, delete per camera.
-- **Alerts** — CRUD rules, list events, webhook for event ingestion.
-- **Health** — `GET /api/v1/health` → `{"status":"ok"}`.
+and open **http://localhost:8080**.
 
-Full API details are in the [README API section](#rest-api) and in [human/USER_GUIDE.md](human/USER_GUIDE.md).
+---
+
+## Windows: PowerShell 7 step-by-step (power users)
+
+Full control: install every dependency yourself, then build and run.
+
+### 1. Install PowerShell 7 (if you’re still on Windows PowerShell 5)
+
+```powershell
+winget install Microsoft.PowerShell --accept-package-agreements
+```
+
+Close and reopen your terminal; use “PowerShell 7” or `pwsh` so the rest of the commands run in PS7.
+
+### 2. Install Git
+
+```powershell
+winget install Git.Git --accept-package-agreements
+```
+
+Close and reopen the terminal so `git` is on your PATH.
+
+### 3. Install Go
+
+```powershell
+winget install GoLang.Go --accept-package-agreements
+```
+
+Again, reopen the terminal so `go` is available.
+
+### 4. Install Node.js (LTS)
+
+```powershell
+winget install OpenJS.NodeJS.LTS --accept-package-agreements
+```
+
+Reopen the terminal so `node` and `npm` are on your PATH.
+
+### 5. Clone RTSPanda
+
+```powershell
+git clone https://github.com/248Tech/RTSPanda.git
+cd RTSPanda
+```
+
+### 6. (Optional) Download mediamtx
+
+Download the Windows zip from [mediamtx releases](https://github.com/bluenviron/mediamtx/releases) (e.g. `mediamtx_v*_windows_amd64.zip`), unzip it, and copy `mediamtx.exe` into the `mediamtx` folder inside RTSPanda:
+
+```powershell
+New-Item -ItemType Directory -Force -Path mediamtx
+# Then copy mediamtx.exe from your Downloads into .\mediamtx\
+```
+
+Or use the install script to do it for you:
+
+```powershell
+.\scripts\install-windows.ps1 -DownloadMediamtx -SkipBuild
+```
+
+(Use `-SkipBuild` only if you already built and just want mediamtx.)
+
+### 7. Build RTSPanda
+
+```powershell
+.\build.ps1
+```
+
+You should see the frontend build, then the Go build. The result is `backend\rtspanda.exe`.
+
+### 8. Run RTSPanda
+
+```powershell
+.\backend\rtspanda.exe
+```
+
+You should see something like: `RTSPanda listening on :8080 (data: ./data)`.
+
+### 9. Use it
+
+Open **http://localhost:8080** in your browser. Add a camera in **Settings → Cameras**, then click it on the dashboard to watch the stream.
+
+---
+
+## What RTSPanda can do
+
+| Feature | What it means |
+|--------|----------------|
+| **Live view** | Dashboard with all cameras; click one for full-screen live video. |
+| **On-demand** | The app only connects to a camera when someone is watching. |
+| **Recording** | Turn on “Record to disk” per camera; get 1-hour MP4 files you can browse and download in the app. |
+| **Screenshots** | While watching, hover over the video and click to save a PNG. |
+| **Alerts** | Add rules per camera; your own scripts or AI can send events to the app via a webhook. |
+| **REST API** | Manage cameras, get stream status, list recordings, and trigger alerts from code or scripts. |
 
 ---
 
 ## Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `8080` | HTTP server port |
-| `DATA_DIR` | `./data` | Database and recordings directory |
-| `MEDIAMTX_BIN` | auto-detect | Path to mediamtx binary |
+You can change behaviour with environment variables (no config file needed):
 
-Example:
+| Variable | Default | What it does |
+|----------|---------|----------------|
+| `PORT` | `8080` | Port the web server uses. |
+| `DATA_DIR` | `./data` | Where the database and recordings are stored. |
+| `MEDIAMTX_BIN` | auto | Full path to `mediamtx.exe` if it’s not in the `mediamtx` folder. |
 
-```bash
-DATA_DIR=/var/lib/rtspanda PORT=9000 ./backend/rtspanda
+**Example (different port and data folder):**
+
+```powershell
+$env:PORT = "9000"; $env:DATA_DIR = "C:\rtspanda-data"; .\backend\rtspanda.exe
 ```
 
 ---
 
-## REST API (summary)
+## REST API (for scripts and power users)
 
-Base path: **`/api/v1`**
+Everything the web UI does can be done over HTTP. Base URL: **http://localhost:8080/api/v1**
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/cameras` | List cameras |
-| `POST` | `/cameras` | Create camera |
-| `GET` | `/cameras/{id}` | Get camera |
-| `PUT` | `/cameras/{id}` | Update camera |
-| `DELETE` | `/cameras/{id}` | Delete camera |
-| `GET` | `/cameras/{id}/stream` | Stream status + HLS URL |
-| `GET` | `/cameras/{id}/recordings` | List recordings |
-| `GET` | `/cameras/{id}/recordings/{filename}` | Download recording |
-| `DELETE` | `/cameras/{id}/recordings/{filename}` | Delete recording |
-| `GET` | `/cameras/{id}/alerts` | List alert rules |
-| `POST` | `/cameras/{id}/alerts` | Create alert rule |
-| `GET` | `/alerts/{id}/events` | List events for a rule |
-| `POST` | `/alerts/{id}/events` | Ingest alert event (webhook) |
-| `GET` | `/health` | Health check |
+| What | Method | Path |
+|------|--------|------|
+| List cameras | `GET` | `/cameras` |
+| Add camera | `POST` | `/cameras` |
+| Get one camera | `GET` | `/cameras/{id}` |
+| Update camera | `PUT` | `/cameras/{id}` |
+| Delete camera | `DELETE` | `/cameras/{id}` |
+| Stream status + HLS URL | `GET` | `/cameras/{id}/stream` |
+| List recordings | `GET` | `/cameras/{id}/recordings` |
+| Download recording | `GET` | `/cameras/{id}/recordings/{filename}` |
+| Alert rules | `GET` / `POST` | `/cameras/{id}/alerts` |
+| Send alert event (webhook) | `POST` | `/alerts/{id}/events` |
+| Health check | `GET` | `/health` |
 
-Camera payload example:
+Example: add a camera with PowerShell:
 
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "name": "Front Door",
-  "rtsp_url": "rtsp://admin:password@192.168.1.10:554/stream",
-  "enabled": true,
-  "record_enabled": false,
-  "position": 0,
-  "created_at": "2025-01-01T00:00:00Z",
-  "updated_at": "2025-01-01T00:00:00Z"
-}
+```powershell
+Invoke-RestMethod -Method POST -Uri "http://localhost:8080/api/v1/cameras" -ContentType "application/json" -Body '{"name":"Front Door","rtsp_url":"rtsp://admin:password@192.168.1.10:554/stream","enabled":true}'
 ```
 
----
-
-## Architecture
-
-- **Single binary** — Go server embeds the built React SPA (`go:embed`). No separate web server.
-- **mediamtx** — Runs as a child process; Go manages config, lifecycle, and API (add/remove paths).
-- **SQLite** — WAL mode, single file. No external database.
-- **On-demand streams** — `sourceOnDemand: true`; no camera connection until a viewer requests the stream.
-
-```
-Browser ←→ Go server (HTTP + HLS proxy) ←→ mediamtx (RTSP → HLS) ←→ RTSP cameras
-                ↓
-           SQLite (cameras, alerts, recordings metadata)
-```
+More examples and details: [human/USER_GUIDE.md](human/USER_GUIDE.md).
 
 ---
 
 ## Security
 
-- **No built-in auth** in this release. Use a reverse proxy (e.g. nginx with basic auth), VPN (Tailscale, WireGuard), or deploy on a private network.
-- **RTSP credentials** are stored in plain text in SQLite. Restrict filesystem access to `DATA_DIR` on multi-user systems.
-- Do not expose RTSPanda directly to the public internet without additional protection.
+- RTSPanda has **no login screen**. Use it on a trusted network, behind a VPN, or behind a reverse proxy (e.g. nginx with password).
+- Camera passwords are stored in the SQLite database. Keep the `data` folder (and `DATA_DIR`) only readable by people you trust.
+- Don’t expose the app directly to the internet without something in front of it (proxy, VPN, etc.).
 
 ---
 
 ## Development
 
-- **Backend only:** `cd backend && go run ./cmd/rtspanda`
-- **Frontend dev server:** `cd frontend && npm install && npm run dev` (proxies `/api` and `/hls` to backend)
-- **Lint:** `cd backend && go vet ./...`; `cd frontend && npm run lint`
+- **Run backend only:** `cd backend; go run ./cmd/rtspanda`
+- **Run frontend with hot reload:** `cd frontend; npm install; npm run dev` (then open http://localhost:5173; API and HLS are proxied to the backend.)
+- **Lint:** `cd backend; go vet ./...` and `cd frontend; npm run lint`
 
-See [human/USER_GUIDE.md](human/USER_GUIDE.md) for detailed setup, RTSP URL tips, and troubleshooting.
+Full guide, RTSP URL tips, and troubleshooting: [human/USER_GUIDE.md](human/USER_GUIDE.md).
 
 ---
 
@@ -202,24 +249,13 @@ See [human/USER_GUIDE.md](human/USER_GUIDE.md) for detailed setup, RTSP URL tips
 
 ```
 RTSPanda/
-├── backend/
-│   ├── cmd/rtspanda/          # Entry point
-│   └── internal/
-│       ├── api/                # HTTP router, handlers, embedded SPA
-│       ├── cameras/            # Camera domain (service, repo)
-│       ├── alerts/             # Alert rules and events
-│       ├── recordings/        # Recording file service
-│       ├── streams/            # mediamtx process + config
-│       └── db/                 # SQLite and migrations
-├── frontend/                   # React + Vite + TypeScript + Tailwind
-│   └── src/
-│       ├── api/                # Typed API client
-│       ├── components/        # UI components (VideoPlayer, CameraCard, etc.)
-│       └── pages/              # Dashboard, CameraView, Settings
-├── mediamtx/                   # Place mediamtx binary here
-├── human/                      # User guide and docs
-├── Makefile                    # Unix build
-└── build.ps1                   # Windows build
+├── backend/          # Go server and embedded web UI
+├── frontend/         # React app (built and embedded into backend)
+├── mediamtx/         # Put mediamtx.exe (or mediamtx) here
+├── scripts/          # install-windows.ps1, dev helpers
+├── human/            # User guide
+├── build.ps1         # Windows build
+└── Makefile          # Mac/Linux build
 ```
 
 ---
@@ -227,7 +263,5 @@ RTSPanda/
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
----
 
 **RTSPanda** — self-hosted, no cloud, no fuss.

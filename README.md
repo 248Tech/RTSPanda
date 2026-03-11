@@ -3,7 +3,7 @@
 **Watch your RTSP cameras in the browser. One app. No cloud. Runs on your machine.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Go](https://img.shields.io/github/go-mod/go-version/248Tech/RTSPanda?filename=backend%2Fgo.mod)](https://go.dev/)
+[![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](https://go.dev/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react)](https://react.dev/)
 
 RTSPanda is a small app you run on your PC or server. You add your camera URLs, open a browser, and watch live—no account, no subscription, no data sent to the cloud. You can also record, take screenshots, and hook in your own alerts or motion detection.

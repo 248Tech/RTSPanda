@@ -13,6 +13,12 @@ RTSPanda is a small app you run on your PC or server. You add your camera URLs, 
 
 ---
 
+## Demo
+
+![RTSPanda demo screenshot](demo/demo.png)
+
+---
+
 ## What is new in v0.0.2
 
 - Adds the AI detection foundation and API wiring for image interpretation workflows.

@@ -3,10 +3,21 @@
 **Watch your RTSP cameras in the browser. One app. No cloud. Runs on your machine.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/248Tech/RTSPanda?sort=semver)](https://github.com/248Tech/RTSPanda/releases)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](https://go.dev/)
 [![React](https://img.shields.io/badge/React-19-61dafb?logo=react)](https://react.dev/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-2ea44f)](https://github.com/248Tech/RTSPanda)
 
 RTSPanda is a small app you run on your PC or server. You add your camera URLs, open a browser, and watch live—no account, no subscription, no data sent to the cloud. You can also record, take screenshots, and hook in your own alerts or motion detection.
+
+---
+
+## What is new in v0.0.2
+
+- Adds the AI detection foundation and API wiring for image interpretation workflows.
+- Includes Docker Compose support for running `rtspanda` with `ai-worker`.
+- Expands setup guidance for Windows and container-based installs.
 
 ---
 

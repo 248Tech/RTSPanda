@@ -49,6 +49,9 @@ func (s *server) handleCreateCamera(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.streams.OnCameraAdded(c)
+	if s.detections != nil {
+		s.detections.OnCameraAdded(c)
+	}
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -76,6 +79,9 @@ func (s *server) handleUpdateCamera(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.streams.OnCameraUpdated(c)
+	if s.detections != nil {
+		s.detections.OnCameraUpdated(c)
+	}
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -91,5 +97,8 @@ func (s *server) handleDeleteCamera(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.streams.OnCameraRemoved(id)
+	if s.detections != nil {
+		s.detections.OnCameraRemoved(id)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

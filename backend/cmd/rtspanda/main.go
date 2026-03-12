@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/rtspanda/rtspanda/internal/api"
 	"github.com/rtspanda/rtspanda/internal/cameras"
 	"github.com/rtspanda/rtspanda/internal/db"
+	"github.com/rtspanda/rtspanda/internal/detections"
 	"github.com/rtspanda/rtspanda/internal/logs"
 	"github.com/rtspanda/rtspanda/internal/recordings"
 	"github.com/rtspanda/rtspanda/internal/streams"
@@ -49,6 +51,9 @@ func main() {
 	// Recording service
 	recordingSvc := recordings.NewService(dataDir)
 
+	// Detection event repository
+	detectionRepo := detections.NewRepository(database.DB)
+
 	// Log buffer for Settings → Logs page (tee log output)
 	logBuf := logs.NewBuffer(1000)
 	log.SetOutput(io.MultiWriter(os.Stdout, logBuf.Writer()))
@@ -68,8 +73,20 @@ func main() {
 		log.Fatalf("start streams: %v", err)
 	}
 
+	// Async object detection manager (gracefully degraded if ffmpeg/detector unavailable).
+	detectionMgr := detections.NewManager(dataDir, detectionRepo, detections.Config{
+		FFmpegBin:             envOrDefault("FFMPEG_BIN", "ffmpeg"),
+		DetectorURL:           envOrDefault("DETECTOR_URL", "http://127.0.0.1:8090"),
+		DefaultSampleInterval: time.Duration(envIntOrDefault("DETECTION_SAMPLE_INTERVAL_SECONDS", 30)) * time.Second,
+		QueueSize:             envIntOrDefault("DETECTION_QUEUE_SIZE", 128),
+		WorkerConcurrency:     envIntOrDefault("DETECTION_WORKERS", 2),
+	})
+	if err := detectionMgr.Start(ctx, cameraList); err != nil {
+		log.Fatalf("start detections: %v", err)
+	}
+
 	// HTTP server
-	router := api.NewRouter(cameraSvc, streamMgr, alertSvc, recordingSvc, logBuf)
+	router := api.NewRouter(cameraSvc, streamMgr, detectionMgr, alertSvc, recordingSvc, logBuf)
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),
 		Handler:      router,
@@ -98,4 +115,25 @@ func main() {
 		log.Fatalf("shutdown error: %v", err)
 	}
 	log.Println("done")
+}
+
+func envOrDefault(key, fallback string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
+func envIntOrDefault(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		log.Printf("invalid %s=%q; using default %d", key, v, fallback)
+		return fallback
+	}
+	return n
 }

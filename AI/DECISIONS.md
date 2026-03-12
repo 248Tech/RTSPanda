@@ -137,3 +137,58 @@ This file records key decisions made during planning. Before changing anything l
 - If scale ever demands it, modules can be extracted later — but not prematurely
 
 **Status:** Decided.
+
+---
+
+## DEC-008 — AI detector runs as optional sidecar worker (HTTP boundary)
+
+**Decision:** Keep RTSPanda as the main modular monolith, but run YOLO inference in a lightweight Python worker reachable over HTTP.
+
+**Rationale:**
+- Ultralytics/YOLO ecosystem is Python-native and faster to ship for v1 detection.
+- Keeps Go backend simple and focused on orchestration/persistence.
+- Clear boundary allows future swap/replacement of detector implementation.
+- Inference failures remain isolated from live stream handling.
+
+**Implications:**
+- Backend dispatches frames asynchronously to `DETECTOR_URL`.
+- Docker compose includes `ai-worker` service by default.
+- If worker is down, detection health degrades but streaming continues.
+
+**Status:** Decided for detection foundation.
+
+---
+
+## DEC-009 — Frame sampling uses FFmpeg pull from camera RTSP (not viewer pipeline taps)
+
+**Decision:** Use FFmpeg single-frame extraction from configured camera RTSP URLs for initial detection sampling.
+
+**Rationale:**
+- Fastest path to a reliable sampling primitive.
+- Does not couple detection to HLS segment internals.
+- Preserves separation from viewer path and avoids browser-side impacts.
+
+**Implications:**
+- Requires `ffmpeg` availability (`FFMPEG_BIN`) in runtime environments.
+- Camera-level override via `detection_sample_seconds`; global fallback via env.
+- Sampling failures are logged and do not block stream serving.
+
+**Status:** Decided for v1 foundation.
+
+---
+
+## DEC-010 — Persist events per detection; retain snapshots only when detections exist
+
+**Decision:** Insert one DB event row per detected object and keep captured snapshots only for frames that produced detections.
+
+**Rationale:**
+- Avoids continuously storing non-actionable frames.
+- Keeps storage growth controlled while preserving evidence for real events.
+- Provides a simple event model for future rules/notifications/UI timelines.
+
+**Implications:**
+- `detection_events` stores label/confidence/bbox/snapshot path/raw payload.
+- Empty-detection frames are deleted after inference.
+- Future tracking and notification layers will build on this schema.
+
+**Status:** Decided.

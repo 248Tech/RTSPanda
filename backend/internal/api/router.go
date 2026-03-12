@@ -30,13 +30,14 @@ type StreamManager interface {
 type server struct {
 	cameras      CameraService
 	streams      StreamManager
+	detections   DetectionService
 	alertSvc     AlertService
 	recordingSvc RecordingService
 	logBuf       LogBuffer
 }
 
-func NewRouter(cameraSvc CameraService, streamMgr StreamManager, alertSvc AlertService, recordingSvc RecordingService, logBuf LogBuffer) http.Handler {
-	s := &server{cameras: cameraSvc, streams: streamMgr, alertSvc: alertSvc, recordingSvc: recordingSvc, logBuf: logBuf}
+func NewRouter(cameraSvc CameraService, streamMgr StreamManager, detectionSvc DetectionService, alertSvc AlertService, recordingSvc RecordingService, logBuf LogBuffer) http.Handler {
+	s := &server{cameras: cameraSvc, streams: streamMgr, detections: detectionSvc, alertSvc: alertSvc, recordingSvc: recordingSvc, logBuf: logBuf}
 	mux := http.NewServeMux()
 
 	// Health
@@ -54,6 +55,13 @@ func NewRouter(cameraSvc CameraService, streamMgr StreamManager, alertSvc AlertS
 
 	// Stream status
 	mux.HandleFunc("GET /api/v1/cameras/{id}/stream", s.handleGetStream)
+
+	// Detection foundation endpoints
+	mux.HandleFunc("GET /api/v1/detections/health", s.handleDetectionHealth)
+	mux.HandleFunc("POST /api/v1/cameras/{id}/detections/test-frame", s.handleCaptureTestFrame)
+	mux.HandleFunc("POST /api/v1/cameras/{id}/detections/test", s.handleTriggerTestDetection)
+	mux.HandleFunc("GET /api/v1/detection-events", s.handleListDetectionEvents)
+	mux.HandleFunc("GET /api/v1/detection-events/{id}/snapshot", s.handleGetDetectionSnapshot)
 
 	// Recordings (per-camera)
 	mux.HandleFunc("GET /api/v1/cameras/{id}/recordings", s.handleListRecordings)

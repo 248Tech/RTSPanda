@@ -43,17 +43,21 @@ func (s *Service) Create(input CreateInput) (Camera, error) {
 	if input.RecordEnabled != nil {
 		recordEnabled = *input.RecordEnabled
 	}
+	if input.DetectionSampleSeconds != nil && *input.DetectionSampleSeconds <= 0 {
+		return Camera{}, fmt.Errorf("%w: detection_sample_seconds must be > 0", ErrInvalid)
+	}
 
 	now := time.Now()
 	c := Camera{
-		ID:            uuid.New().String(),
-		Name:          input.Name,
-		RTSPURL:       input.RTSPURL,
-		Enabled:       enabled,
-		RecordEnabled: recordEnabled,
-		Position:      0,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:                     uuid.New().String(),
+		Name:                   input.Name,
+		RTSPURL:                input.RTSPURL,
+		Enabled:                enabled,
+		RecordEnabled:          recordEnabled,
+		DetectionSampleSeconds: input.DetectionSampleSeconds,
+		Position:               0,
+		CreatedAt:              now,
+		UpdatedAt:              now,
 	}
 	if err := s.repo.Create(c); err != nil {
 		return Camera{}, fmt.Errorf("create camera: %w", err)
@@ -87,6 +91,12 @@ func (s *Service) Update(id string, input UpdateInput) (Camera, error) {
 	}
 	if input.RecordEnabled != nil {
 		c.RecordEnabled = *input.RecordEnabled
+	}
+	if input.DetectionSampleSeconds != nil {
+		if *input.DetectionSampleSeconds <= 0 {
+			return Camera{}, fmt.Errorf("%w: detection_sample_seconds must be > 0", ErrInvalid)
+		}
+		c.DetectionSampleSeconds = input.DetectionSampleSeconds
 	}
 	if input.Position != nil {
 		c.Position = *input.Position

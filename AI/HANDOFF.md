@@ -1,73 +1,84 @@
 # RTSPanda — Handoff
 
----
-
-## Latest Handoff: 2026-03-09 — Backend Complete, Dashboard UI Done
+## Latest Handoff: 2026-03-12 — Object Detection Foundation Implemented
 
 ### Summary
 
-The entire Go backend is implemented and smoke-tested. The React frontend has a working dashboard, routing, and all camera-grid components. The next work is the HLS video player (TASK-008) and the Settings/camera management UI (TASK-009).
+Implemented the first-priority AI/object-detection foundation only:
+- FFmpeg frame sampling from configured RTSP cameras
+- Async dispatch queue in Go backend
+- Separate Python FastAPI YOLOv8 worker boundary
+- Structured detection result handling
+- Detection event + snapshot persistence
+- Minimal detection API and health surface
 
-### What Is Done
+No unrelated UI redesign or full notification/rules/tracking feature set was added.
 
-**Backend (all complete, `go build ./...` clean):**
-- `backend/internal/db/` — SQLite connection, WAL mode, embed.FS migration runner
-- `backend/internal/cameras/` — Camera model, repo (raw SQL), service (UUID, validation)
-- `backend/internal/api/` — Full CRUD handlers + stream status endpoint + HLS reverse proxy
-- `backend/internal/streams/` — mediamtx subprocess manager, watchdog, config generation, stream status polling
-- `backend/cmd/rtspanda/main.go` — wires everything; graceful shutdown; `DATA_DIR` / `PORT` env vars
-- `.gitignore` — covers mediamtx binary, data dir, dist
+### Files Changed
 
-**Frontend (component layer complete, `npm run build` clean):**
-- `src/App.tsx` — Custom `usePath` router hook, Navbar, page routing (`/`, `/settings`, `/cameras/:id`), `CameraViewPlaceholder` stub for TASK-008
-- `src/pages/Dashboard.tsx` — Fetches cameras on load, polls every 30s, loading/error/empty states
-- `src/components/CameraGrid.tsx` — Responsive grid (1/2/3/4 col), renders CameraCard
-- `src/components/CameraCard.tsx` — Fetches stream status per card, 16:9 placeholder thumbnail, click-to-navigate
-- `src/components/StatusBadge.tsx` — `online` / `offline` / `connecting` states with correct Tailwind tokens
-- `src/components/EmptyState.tsx` — "No cameras configured" with Add Camera CTA
-- `src/api/cameras.ts` — Typed API client for all endpoints
-- `tailwind.config.ts` — Custom design tokens (`base`, `card`, `accent`, `status-*`, `text-*`)
+- `backend/cmd/rtspanda/main.go`
+- `backend/internal/api/router.go`
+- `backend/internal/api/cameras.go`
+- `backend/internal/api/detections.go` (new)
+- `backend/internal/cameras/model.go`
+- `backend/internal/cameras/repository.go`
+- `backend/internal/cameras/service.go`
+- `backend/internal/db/migrations/003_detection_foundation.sql` (new)
+- `backend/internal/detections/model.go` (new)
+- `backend/internal/detections/repository.go` (new)
+- `backend/internal/detections/client.go` (new)
+- `backend/internal/detections/capture.go` (new)
+- `backend/internal/detections/manager.go` (new)
+- `ai_worker/app/main.py` (new)
+- `ai_worker/app/__init__.py` (new)
+- `ai_worker/requirements.txt` (new)
+- `ai_worker/Dockerfile` (new)
+- `docker-compose.yml`
+- `Dockerfile`
+- `README.md`
+- `AI/TODO.md`
+- `AI/DECISIONS.md`
+- `AI/FEATURES/AI_IMAGE_INTERPRETATION.md` (new)
 
-**Not yet done (stubs):**
-- `src/pages/Settings.tsx` — Stub only (heading text); TASK-009
-- No `VideoPlayer.tsx` / `CameraView.tsx` — TASK-008
-- No `CameraForm.tsx` — TASK-009
+### What Works
 
-### Open Issues
+- Camera schema supports optional per-camera detection sampling override (`detection_sample_seconds`).
+- Backend starts detection manager with:
+  - configurable global sample interval
+  - async queue (`DETECTION_QUEUE_SIZE`)
+  - detector worker concurrency (`DETECTION_WORKERS`)
+- FFmpeg captures snapshots under `DATA_DIR/snapshots/detections/{camera_id}`.
+- Snapshot jobs are dispatched asynchronously to `DETECTOR_URL`.
+- Python worker returns structured YOLOv8 detections (`label`, `confidence`, `bbox`, `timestamp`, `camera_id`).
+- Detections are persisted into SQLite `detection_events`.
+- Detection snapshots are linked via `snapshot_path`.
+- New API endpoints are available:
+  - `GET /api/v1/detections/health`
+  - `POST /api/v1/cameras/{id}/detections/test-frame`
+  - `POST /api/v1/cameras/{id}/detections/test`
+  - `GET /api/v1/detection-events`
+  - `GET /api/v1/detection-events/{id}/snapshot`
+- Docker compose now includes `ai-worker` and backend `DETECTOR_URL` wiring.
+- Live viewer path remains independent from AI path.
 
-1. **No Vite dev proxy** — Add to `frontend/vite.config.ts`:
-   ```ts
-   server: { proxy: { '/api': 'http://localhost:8080', '/hls': 'http://localhost:8080' } }
-   ```
-   Without this, `npm run dev` can't reach the Go API. Not blocking production (Go embeds the frontend), but blocking local dev testing.
+### What Remains
 
-2. **mediamtx binary not installed** — Streaming is in graceful-disabled mode. Download the binary for the target platform and place at `mediamtx/mediamtx[.exe]`, or set `MEDIAMTX_BIN` env var. Releases: https://github.com/bluenviron/mediamtx/releases
+- Real-camera integration smoke tests for detection cadence and event quality.
+- Retention/cleanup policy for old detection snapshots/events.
+- Event pagination/filtering improvements for future UI.
+- Tracking/rules/notifications/UI layers on top of new foundation.
 
-3. **`backend/data/rtspanda.db` on disk** — Leftover from smoke tests. Covered by `.gitignore` but present locally. Safe to delete.
+### Risks / Warnings
 
-4. **`Settings.tsx` uses raw Tailwind colors** (`slate-200`, `slate-500`) instead of design tokens. Acceptable since TASK-009 will rewrite the file entirely.
+- `ffmpeg` must be available in runtime (`FFMPEG_BIN`), or scheduled sampling degrades.
+- First `ai-worker` container build can be slow/heavy due YOLO/PyTorch dependencies.
+- Worker-down state is tolerated (detection health degrades), but no retries/backoff policy beyond queue drop behavior exists yet.
+- Existing repo had unrelated uncommitted changes before this implementation; they were preserved.
 
-### Resolved (Previously Outstanding)
+### Next Recommended Tool
 
-- ✓ Go version — 1.26 (verified)
-- ✓ UUID library — `github.com/google/uuid` confirmed
-- ✓ PORT env var — implemented
-- ✓ mediamtx subprocess management — watchdog + graceful shutdown + disabled mode
-- ✓ Frontend CORS — handled by embedded binary in production; dev proxy is the only open gap
+Cursor (for end-to-end manual validation and any UI-safe verification tooling), then Aider for retention/pagination backend follow-ups.
 
-### Next Recommended Work
+### Suggested Next Prompt
 
-**TASK-008 and TASK-009 can be started in parallel.**
-
-- **TASK-008** — Install `hls.js` (`npm install hls.js`), create `VideoPlayer.tsx` + `CameraView.tsx`, replace `CameraViewPlaceholder` in `App.tsx`. See `AI/UXDesign/DASHBOARD_UX.md` for layout spec.
-- **TASK-009** — Implement `Settings.tsx` (camera list with edit/delete), `CameraForm.tsx` (modal with name + RTSP URL + enabled toggle). Use `addCamera`, `updateCamera`, `deleteCamera` from `src/api/cameras.ts`.
-
-After both: **TASK-010** (embed frontend into Go binary) then **TASK-011** (Docker).
-
----
-
-## Previous Handoffs
-
-### 2026-03-09 — Initial Planning Complete
-
-Architecture planning complete. All 7 architecture decisions made. 11 implementation tasks decomposed. AI coordination files bootstrapped. No code existed yet.
+“Run an end-to-end validation pass of the new detection foundation: start docker compose, add a test RTSP camera, call the test frame/test detection endpoints, confirm detection events + snapshots persist, and document any gaps with proposed minimal fixes.”

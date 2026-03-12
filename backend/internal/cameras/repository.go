@@ -16,7 +16,7 @@ func NewRepository(db *sql.DB) *Repository {
 
 func (r *Repository) List() ([]Camera, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, rtsp_url, enabled, record_enabled, position, created_at, updated_at
+		`SELECT id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, position, created_at, updated_at
 		 FROM cameras ORDER BY position, created_at`,
 	)
 	if err != nil {
@@ -37,7 +37,7 @@ func (r *Repository) List() ([]Camera, error) {
 
 func (r *Repository) GetByID(id string) (Camera, error) {
 	row := r.db.QueryRow(
-		`SELECT id, name, rtsp_url, enabled, record_enabled, position, created_at, updated_at
+		`SELECT id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, position, created_at, updated_at
 		 FROM cameras WHERE id = ?`, id,
 	)
 	c, err := scanCamera(row)
@@ -49,17 +49,17 @@ func (r *Repository) GetByID(id string) (Camera, error) {
 
 func (r *Repository) Create(c Camera) error {
 	_, err := r.db.Exec(
-		`INSERT INTO cameras (id, name, rtsp_url, enabled, record_enabled, position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.Name, c.RTSPURL, boolToInt(c.Enabled), boolToInt(c.RecordEnabled), c.Position, c.CreatedAt, c.UpdatedAt,
+		`INSERT INTO cameras (id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, position, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.Name, c.RTSPURL, boolToInt(c.Enabled), boolToInt(c.RecordEnabled), nullableInt(c.DetectionSampleSeconds), c.Position, c.CreatedAt, c.UpdatedAt,
 	)
 	return err
 }
 
 func (r *Repository) Update(c Camera) error {
 	res, err := r.db.Exec(
-		`UPDATE cameras SET name=?, rtsp_url=?, enabled=?, record_enabled=?, position=?, updated_at=? WHERE id=?`,
-		c.Name, c.RTSPURL, boolToInt(c.Enabled), boolToInt(c.RecordEnabled), c.Position, time.Now(), c.ID,
+		`UPDATE cameras SET name=?, rtsp_url=?, enabled=?, record_enabled=?, detection_sample_seconds=?, position=?, updated_at=? WHERE id=?`,
+		c.Name, c.RTSPURL, boolToInt(c.Enabled), boolToInt(c.RecordEnabled), nullableInt(c.DetectionSampleSeconds), c.Position, time.Now(), c.ID,
 	)
 	if err != nil {
 		return err
@@ -90,9 +90,14 @@ type scanner interface {
 func scanCamera(s scanner) (Camera, error) {
 	var c Camera
 	var enabled, recordEnabled int
-	err := s.Scan(&c.ID, &c.Name, &c.RTSPURL, &enabled, &recordEnabled, &c.Position, &c.CreatedAt, &c.UpdatedAt)
+	var sampleSeconds sql.NullInt64
+	err := s.Scan(&c.ID, &c.Name, &c.RTSPURL, &enabled, &recordEnabled, &sampleSeconds, &c.Position, &c.CreatedAt, &c.UpdatedAt)
 	c.Enabled = enabled != 0
 	c.RecordEnabled = recordEnabled != 0
+	if sampleSeconds.Valid {
+		v := int(sampleSeconds.Int64)
+		c.DetectionSampleSeconds = &v
+	}
 	return c, err
 }
 
@@ -101,4 +106,11 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func nullableInt(v *int) any {
+	if v == nil {
+		return nil
+	}
+	return *v
 }

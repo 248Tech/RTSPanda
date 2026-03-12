@@ -1,0 +1,36 @@
+services:
+  ai-worker:
+    build:
+      context: .
+      dockerfile: ai_worker/Dockerfile
+    image: rtspanda-ai-worker:latest
+    container_name: rtspanda-ai-worker
+    environment:
+      YOLO_MODEL: yolov8n.pt
+      YOLO_CONFIDENCE: "0.25"
+    expose:
+      - "8090"
+    restart: unless-stopped
+
+  rtspanda:
+    build:
+      context: .
+      args:
+        MEDIAMTX_VERSION: v1.12.3
+    image: rtspanda:latest
+    container_name: rtspanda
+    ports:
+      - "8080:8080"
+    environment:
+      DATA_DIR: /data
+      PORT: 8080
+      MEDIAMTX_BIN: /usr/local/bin/mediamtx
+      DETECTOR_URL: http://ai-worker:8090
+      DETECTION_SAMPLE_INTERVAL_SECONDS: 30
+      DETECTION_WORKERS: 2
+      DETECTION_QUEUE_SIZE: 128
+    volumes:
+      - ./data:/data
+    depends_on:
+      - ai-worker
+    restart: unless-stopped

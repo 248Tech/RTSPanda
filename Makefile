@@ -6,7 +6,7 @@ FRONTEND_DIR := frontend
 BACKEND_DIR := backend
 WEB_EMBED_DIR := $(BACKEND_DIR)/internal/api/web
 
-.PHONY: build build-frontend build-backend clean
+.PHONY: build build-frontend build-backend clean docker-up docker-down
 
 build: build-frontend build-backend
 
@@ -27,3 +27,9 @@ clean:
 	rm -rf $(FRONTEND_DIR)/dist
 	rm -rf $(WEB_EMBED_DIR)
 	rm -f $(BACKEND_DIR)/$(BINARY_NAME) $(BACKEND_DIR)/$(BINARY_NAME).exe
+
+docker-up:
+	docker compose up --build -d
+
+docker-down:
+	docker compose down

@@ -54,6 +54,35 @@ Go to **http://localhost:8080**. Click **Settings** → **Cameras** → **Add Ca
 
 ---
 
+## One-line Docker setup
+
+Use this if you want the fastest deploy path without local Go/Node setup.
+
+```bash
+git clone https://github.com/248Tech/RTSPanda.git && cd RTSPanda && docker compose up --build -d
+```
+
+Then open **http://localhost:8080**.
+
+This compose setup starts both services: `rtspanda` (Go backend) and `ai-worker` (FastAPI + YOLOv8).
+First build can take longer because Python AI dependencies are large.
+
+Stop it:
+
+```bash
+docker compose down
+```
+
+Data persists in `./data` on your host.
+
+Windows one-click helper (auto-starts Docker Desktop if needed):
+
+```powershell
+.\scripts\docker-up.ps1
+```
+
+---
+
 ## Windows: one-line install (PowerShell 7)
 
 One command to clone the repo, install Git/Go/Node (if missing), and build. Paste into PowerShell 7:
@@ -177,6 +206,7 @@ Open **http://localhost:8080** in your browser. Add a camera in **Settings → C
 | **Recording** | Turn on “Record to disk” per camera; get 1-hour MP4 files you can browse and download in the app. |
 | **Screenshots** | While watching, hover over the video and click to save a PNG. |
 | **Alerts** | Add rules per camera; your own scripts or AI can send events to the app via a webhook. |
+| **AI foundation (Phase 1)** | Optional async object-detection pipeline: FFmpeg frame sampling + YOLOv8 worker + stored detection events/snapshots. |
 | **REST API** | Manage cameras, get stream status, list recordings, and trigger alerts from code or scripts. |
 
 ---
@@ -190,6 +220,11 @@ You can change behaviour with environment variables (no config file needed):
 | `PORT` | `8080` | Port the web server uses. |
 | `DATA_DIR` | `./data` | Where the database and recordings are stored. |
 | `MEDIAMTX_BIN` | auto | Full path to `mediamtx.exe` if it’s not in the `mediamtx` folder. |
+| `FFMPEG_BIN` | `ffmpeg` | FFmpeg path for frame capture used by object detection sampling. |
+| `DETECTOR_URL` | `http://127.0.0.1:8090` | URL of the async detector worker (`/detect`, `/health`). |
+| `DETECTION_SAMPLE_INTERVAL_SECONDS` | `30` | Global sample interval for camera frame capture. |
+| `DETECTION_WORKERS` | `2` | Concurrent async detection worker requests from backend queue. |
+| `DETECTION_QUEUE_SIZE` | `128` | Max queued snapshots waiting for detector service. |
 
 **Example (different port and data folder):**
 
@@ -215,6 +250,11 @@ Everything the web UI does can be done over HTTP. Base URL: **http://localhost:8
 | Download recording | `GET` | `/cameras/{id}/recordings/{filename}` |
 | Alert rules | `GET` / `POST` | `/cameras/{id}/alerts` |
 | Send alert event (webhook) | `POST` | `/alerts/{id}/events` |
+| Detection health | `GET` | `/detections/health` |
+| Trigger test frame capture | `POST` | `/cameras/{id}/detections/test-frame` |
+| Trigger test detection | `POST` | `/cameras/{id}/detections/test` |
+| List recent detection events | `GET` | `/detection-events` |
+| Get snapshot for event | `GET` | `/detection-events/{id}/snapshot` |
 | Health check | `GET` | `/health` |
 
 Example: add a camera with PowerShell:
@@ -252,6 +292,8 @@ RTSPanda/
 ├── backend/          # Go server and embedded web UI
 ├── frontend/         # React app (built and embedded into backend)
 ├── mediamtx/         # Put mediamtx.exe (or mediamtx) here
+├── Dockerfile        # Docker image build
+├── docker-compose.yml# One-command container run
 ├── scripts/          # install-windows.ps1, dev helpers
 ├── human/            # User guide
 ├── build.ps1         # Windows build

@@ -1,84 +1,88 @@
 # RTSPanda — Handoff
 
-## Latest Handoff: 2026-03-12 — Object Detection Foundation Implemented
+## Latest Handoff: 2026-03-13 — YOLOv8 UI + Per-Camera Tracking + Discord Rich Alerts
 
 ### Summary
 
-Implemented the first-priority AI/object-detection foundation only:
-- FFmpeg frame sampling from configured RTSP cameras
-- Async dispatch queue in Go backend
-- Separate Python FastAPI YOLOv8 worker boundary
-- Structured detection result handling
-- Detection event + snapshot persistence
-- Minimal detection API and health surface
+Completed the end-to-end AI UX and alerting layer on top of the detection foundation:
 
-No unrelated UI redesign or full notification/rules/tracking feature set was added.
+- Per-camera YOLOv8 tracking settings in camera config
+- Live detection overlays rendered in the camera player UI
+- Detection event/history panel with snapshot previews
+- Per-camera Discord rich-media webhook alerts with cooldown
+- Detection frame dimension persistence for accurate overlay scaling
+
+This turn shipped both backend data/model/pipeline updates and frontend UI integration.
+
+---
 
 ### Files Changed
 
+- `ai_worker/app/main.py`
 - `backend/cmd/rtspanda/main.go`
-- `backend/internal/api/router.go`
-- `backend/internal/api/cameras.go`
-- `backend/internal/api/detections.go` (new)
 - `backend/internal/cameras/model.go`
 - `backend/internal/cameras/repository.go`
 - `backend/internal/cameras/service.go`
-- `backend/internal/db/migrations/003_detection_foundation.sql` (new)
-- `backend/internal/detections/model.go` (new)
-- `backend/internal/detections/repository.go` (new)
-- `backend/internal/detections/client.go` (new)
-- `backend/internal/detections/capture.go` (new)
-- `backend/internal/detections/manager.go` (new)
-- `ai_worker/app/main.py` (new)
-- `ai_worker/app/__init__.py` (new)
-- `ai_worker/requirements.txt` (new)
-- `ai_worker/Dockerfile` (new)
-- `docker-compose.yml`
-- `Dockerfile`
-- `README.md`
-- `AI/TODO.md`
-- `AI/DECISIONS.md`
-- `AI/FEATURES/AI_IMAGE_INTERPRETATION.md` (new)
+- `backend/internal/db/migrations/004_camera_tracking_discord.sql` (new)
+- `backend/internal/detections/model.go`
+- `backend/internal/detections/repository.go`
+- `backend/internal/detections/manager.go`
+- `backend/internal/notifications/discord.go` (new)
+- `frontend/src/api/cameras.ts`
+- `frontend/src/api/detections.ts` (new)
+- `frontend/src/components/CameraForm.tsx`
+- `frontend/src/components/VideoPlayer.tsx`
+- `frontend/src/pages/CameraView.tsx`
+- `frontend/src/pages/Settings.tsx`
+
+---
 
 ### What Works
 
-- Camera schema supports optional per-camera detection sampling override (`detection_sample_seconds`).
-- Backend starts detection manager with:
-  - configurable global sample interval
-  - async queue (`DETECTION_QUEUE_SIZE`)
-  - detector worker concurrency (`DETECTION_WORKERS`)
-- FFmpeg captures snapshots under `DATA_DIR/snapshots/detections/{camera_id}`.
-- Snapshot jobs are dispatched asynchronously to `DETECTOR_URL`.
-- Python worker returns structured YOLOv8 detections (`label`, `confidence`, `bbox`, `timestamp`, `camera_id`).
-- Detections are persisted into SQLite `detection_events`.
-- Detection snapshots are linked via `snapshot_path`.
-- New API endpoints are available:
-  - `GET /api/v1/detections/health`
-  - `POST /api/v1/cameras/{id}/detections/test-frame`
-  - `POST /api/v1/cameras/{id}/detections/test`
-  - `GET /api/v1/detection-events`
-  - `GET /api/v1/detection-events/{id}/snapshot`
-- Docker compose now includes `ai-worker` and backend `DETECTOR_URL` wiring.
-- Live viewer path remains independent from AI path.
+- Camera model now supports:
+  - `tracking_enabled`
+  - `tracking_min_confidence`
+  - `tracking_labels`
+  - `discord_alerts_enabled`
+  - `discord_webhook_url`
+  - `discord_mention`
+  - `discord_cooldown_seconds`
+- Detection samplers only run for cameras that are both `enabled` and `tracking_enabled`.
+- Detection filtering now happens per camera:
+  - confidence threshold
+  - optional label allow-list
+- Detection events now persist `frame_width` and `frame_height`.
+- Camera view UI supports:
+  - quick tracking toggle
+  - run-test-detection action
+  - live overlay toggle
+  - event history panel with grouped snapshots
+- Discord notifier sends rich embeds with attached snapshot media and bbox/confidence details.
+- Discord alert cooldown is enforced per camera.
 
-### What Remains
+---
 
-- Real-camera integration smoke tests for detection cadence and event quality.
-- Retention/cleanup policy for old detection snapshots/events.
-- Event pagination/filtering improvements for future UI.
-- Tracking/rules/notifications/UI layers on top of new foundation.
+### Verification
 
-### Risks / Warnings
+- `go build ./...` (backend): pass
+- `npm run lint` (frontend): pass
+- `npm run build` (frontend): pass
+- `.\build.ps1` (embed + binary build): pass
 
-- `ffmpeg` must be available in runtime (`FFMPEG_BIN`), or scheduled sampling degrades.
-- First `ai-worker` container build can be slow/heavy due YOLO/PyTorch dependencies.
-- Worker-down state is tolerated (detection health degrades), but no retries/backoff policy beyond queue drop behavior exists yet.
-- Existing repo had unrelated uncommitted changes before this implementation; they were preserved.
+---
 
-### Next Recommended Tool
+### Known Constraints
 
-Cursor (for end-to-end manual validation and any UI-safe verification tooling), then Aider for retention/pagination backend follow-ups.
+- Current pipeline is frame-sampling detection, not persistent multi-object track IDs.
+- Discord sends one message per sampled event batch (subject to cooldown), not per-object rate limiting.
+- No retention/cleanup policy yet for detection snapshots/events.
+- Frontend bundle remains large; Vite chunk warning still present.
 
-### Suggested Next Prompt
+---
 
-“Run an end-to-end validation pass of the new detection foundation: start docker compose, add a test RTSP camera, call the test frame/test detection endpoints, confirm detection events + snapshots persist, and document any gaps with proposed minimal fixes.”
+### Recommended Next Steps
+
+1. Add retention policy for `data/snapshots/detections` and old `detection_events`.
+2. Add pagination/date-range filters for detection history API and UI.
+3. Add optional object-level suppression windows (e.g. same label cooldown).
+4. Add integration tests for migration `004` and detection filtering/Discord notify path.

@@ -192,3 +192,39 @@ This file records key decisions made during planning. Before changing anything l
 - Future tracking and notification layers will build on this schema.
 
 **Status:** Decided.
+
+---
+
+## DEC-011 — Per-camera tracking controls live on camera entity (not separate rule object)
+
+**Decision:** Store core AI tracking controls directly on each camera record.
+
+**Rationale:**
+- Tracking enable/disable and thresholds are operational camera settings.
+- Keeps scheduling/filtering path fast and simple in detection manager.
+- Avoids introducing rules-engine complexity before retention/pagination hardening.
+
+**Implications:**
+- Camera API now owns fields such as `tracking_enabled`, confidence, and label filters.
+- Detection sampler lifecycle responds immediately to camera update events.
+- Future rules engine can still layer on top without moving core sampling controls.
+
+**Status:** Decided.
+
+---
+
+## DEC-012 — Discord rich alerts are emitted from detection manager via notifier boundary
+
+**Decision:** Send Discord alerts from backend detection pipeline through a notifier interface.
+
+**Rationale:**
+- Alerting should happen near event creation to guarantee payload consistency.
+- Interface boundary keeps transport-specific logic out of detection core.
+- Enables future notifier expansion (email/webhook bus) with minimal manager changes.
+
+**Implications:**
+- New `notifications` package with Discord webhook implementation.
+- Per-camera cooldown applied server-side to reduce alert spam.
+- Notification failures are logged but do not block detection persistence.
+
+**Status:** Decided.

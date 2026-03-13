@@ -1,79 +1,65 @@
 # RTSPanda — TODO
 
-Last updated: 2026-03-12
+Last updated: 2026-03-13
 
 ---
 
 ## In Progress
 
-### TASK-AI-002 — Validate detector pipeline on real RTSP cameras
+### TASK-AI-003 — Detection event retention + cleanup policy
 
-- **Description:** End-to-end smoke test against at least one real camera and confirm snapshot/event creation cadence.
-- **Purpose:** Verify FFmpeg + YOLO worker behavior in practical network conditions.
+- **Description:** Add configurable retention/cleanup for old detection snapshots/events.
+- **Purpose:** Prevent unbounded disk growth while preserving recent evidence.
 - **Acceptance criteria:**
-  - Sampled frames captured at configured interval.
-  - `POST /api/v1/cameras/{id}/detections/test` returns structured detections.
-  - `GET /api/v1/detection-events` returns persisted events with valid snapshot links.
-- **Next tool:** Cursor or Aider
+  - Configurable max age for snapshots/events.
+  - Scheduled cleanup job removes expired files and rows safely.
+  - Cleanup failures are logged without crashing runtime.
+- **Next tool:** Aider
 
 ---
 
 ## Ready for Aider
 
-### TASK-AI-003 — Detection event retention + cleanup policy
-
-- **Description:** Add configurable retention/cleanup for old detection snapshots/events.
-- **Purpose:** Prevent unbounded disk growth while preserving recent evidence.
-- **Dependencies:** TASK-AI-001
-- **Next tool:** Aider
-
 ### TASK-AI-004 — Event filters and pagination
 
-- **Description:** Expand detection event APIs with pagination cursors and richer filters.
-- **Purpose:** Prepare scalable UI/event timeline consumption.
-- **Dependencies:** TASK-AI-001
+- **Description:** Expand detection event APIs with cursor/offset pagination and richer filters.
+- **Purpose:** Prepare scalable timeline/history UX and lower payload sizes.
+- **Dependencies:** TASK-AI-001, TASK-AI-002
+- **Next tool:** Aider
+
+### TASK-AI-006 — Discord delivery resilience
+
+- **Description:** Add retry/backoff and failed-delivery visibility for Discord webhook sends.
+- **Purpose:** Reduce silent alert loss on transient network failures.
+- **Dependencies:** TASK-AI-002
 - **Next tool:** Aider
 
 ---
 
 ## Ready for Claude (Planning)
 
-### TASK-AI-P01 — Object tracking architecture (post-foundation)
+### TASK-AI-P01 — Multi-frame tracking architecture
 
-- **Description:** Plan lightweight multi-frame tracking strategy layered on current detection events.
+- **Description:** Plan lightweight object ID tracking across frames (beyond per-frame detections).
 - **Output:** `AI/FEATURES/OBJECT_TRACKING.md`
-- **Dependencies:** TASK-AI-001
+- **Dependencies:** TASK-AI-002
 - **Next tool:** Claude
 
-### TASK-AI-P02 — AI rules engine spec
+### TASK-AI-P02 — Rules engine spec
 
-- **Description:** Define rules model (object filters, confidence thresholds, schedules, suppression windows).
+- **Description:** Define rule model for object filters, schedules, suppression windows, and actions.
 - **Output:** `AI/FEATURES/AI_RULES_ENGINE.md`
-- **Dependencies:** TASK-AI-001
-- **Next tool:** Claude
-
-### TASK-AI-P03 — Notification architecture spec
-
-- **Description:** Design notifications pipeline (Discord/email) on top of detection events.
-- **Output:** `AI/FEATURES/NOTIFICATIONS.md`
-- **Dependencies:** TASK-AI-001
-- **Next tool:** Claude
-
-### TASK-AI-P04 — Detection UI integration spec
-
-- **Description:** Plan frontend event timeline/snapshot viewer and testing UX for detection health.
-- **Output:** `AI/UXDesign/DETECTION_EVENTS_UX.md`
-- **Dependencies:** TASK-AI-001
+- **Dependencies:** TASK-AI-002
 - **Next tool:** Claude
 
 ---
 
 ## Ready for Cursor
 
-### TASK-AI-005 — Minimal detection events UI wiring
+### TASK-AI-007 — Detection history UX scaling
 
-- **Description:** Add non-invasive UI surfaces to list detection events and preview snapshots.
-- **Purpose:** Make persisted detection scaffolding visible for manual verification.
+- **Description:** Add timeline filters and lazy loading to camera event history panel.
+- **Purpose:** Keep camera page performant on long-running deployments.
 - **Dependencies:** TASK-AI-004
 - **Next tool:** Cursor
 
@@ -83,17 +69,20 @@ Last updated: 2026-03-12
 
 ### TASK-AI-001 — Object detection foundation (Phase 1) ✓
 
-- **Implemented:**
-  - FFmpeg-based frame sampling pipeline with per-camera override (`detection_sample_seconds`) and global interval env fallback.
-  - Async detector boundary with queue + worker goroutines in Go.
-  - Python FastAPI YOLOv8 worker (`ai_worker`) with `/detect` + `/health`.
-  - SQLite `detection_events` table + repository scaffolding.
-  - Snapshot persistence under `DATA_DIR/snapshots/detections/{camera_id}`.
-  - Backend APIs:
-    - `POST /api/v1/cameras/{id}/detections/test-frame`
-    - `POST /api/v1/cameras/{id}/detections/test`
-    - `GET /api/v1/detection-events`
-    - `GET /api/v1/detection-events/{id}/snapshot`
-    - `GET /api/v1/detections/health`
-  - Docker compose wiring for optional `ai-worker` service.
-- **Notes:** Streaming/viewer path remains decoupled from detection pipeline.
+- FFmpeg-based frame sampling pipeline
+- Async detector queue + workers in Go
+- Python FastAPI YOLOv8 worker (`/detect`, `/health`)
+- SQLite detection event storage + snapshot persistence
+- Detection APIs and Docker wiring
+
+### TASK-AI-002 — Detection UI + per-camera controls + Discord alerts ✓
+
+- Per-camera settings:
+  - tracking toggle
+  - sample interval
+  - confidence threshold
+  - label filters
+  - Discord webhook + mention + cooldown
+- Live overlay rendering in camera view
+- Detection event/history panel with snapshots
+- Discord rich-media webhook notifications from detection pipeline

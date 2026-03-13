@@ -20,7 +20,15 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) CreateEvents(cameraID string, snapshotPath string, createdAt time.Time, detections []Detection, rawPayload string) ([]Event, error) {
+func (r *Repository) CreateEvents(
+	cameraID string,
+	snapshotPath string,
+	createdAt time.Time,
+	frameWidth int,
+	frameHeight int,
+	detections []Detection,
+	rawPayload string,
+) ([]Event, error) {
 	if len(detections) == 0 {
 		return []Event{}, nil
 	}
@@ -36,14 +44,16 @@ func (r *Repository) CreateEvents(cameraID string, snapshotPath string, createdA
 		raw := nullableString(rawPayload)
 
 		_, err = r.db.Exec(
-			`INSERT INTO detection_events (id, camera_id, object_label, confidence, bbox_json, snapshot_path, raw_payload, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO detection_events (id, camera_id, object_label, confidence, bbox_json, snapshot_path, frame_width, frame_height, raw_payload, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			id,
 			cameraID,
 			d.Label,
 			d.Confidence,
 			string(bboxJSON),
 			snapshotPath,
+			nullableInt(frameWidth),
+			nullableInt(frameHeight),
 			raw,
 			createdAt,
 		)
@@ -58,6 +68,8 @@ func (r *Repository) CreateEvents(cameraID string, snapshotPath string, createdA
 			Confidence:   d.Confidence,
 			BBox:         d.BBox,
 			SnapshotPath: snapshotPath,
+			FrameWidth:   frameWidth,
+			FrameHeight:  frameHeight,
 			RawPayload:   ptrIfNonEmpty(rawPayload),
 			CreatedAt:    createdAt,
 		})
@@ -70,7 +82,7 @@ func (r *Repository) ListRecent(limit int, cameraID string) ([]Event, error) {
 		limit = 100
 	}
 
-	query := `SELECT id, camera_id, object_label, confidence, bbox_json, snapshot_path, raw_payload, created_at
+	query := `SELECT id, camera_id, object_label, confidence, bbox_json, snapshot_path, frame_width, frame_height, raw_payload, created_at
 		FROM detection_events`
 	args := make([]any, 0, 2)
 	if cameraID != "" {
@@ -99,7 +111,7 @@ func (r *Repository) ListRecent(limit int, cameraID string) ([]Event, error) {
 
 func (r *Repository) GetByID(id string) (Event, error) {
 	row := r.db.QueryRow(
-		`SELECT id, camera_id, object_label, confidence, bbox_json, snapshot_path, raw_payload, created_at
+		`SELECT id, camera_id, object_label, confidence, bbox_json, snapshot_path, frame_width, frame_height, raw_payload, created_at
 		FROM detection_events
 		WHERE id = ?`,
 		id,
@@ -121,6 +133,8 @@ type scanner interface {
 func scanEvent(s scanner) (Event, error) {
 	var e Event
 	var bboxJSON string
+	var frameWidth sql.NullInt64
+	var frameHeight sql.NullInt64
 	var raw sql.NullString
 	err := s.Scan(
 		&e.ID,
@@ -129,6 +143,8 @@ func scanEvent(s scanner) (Event, error) {
 		&e.Confidence,
 		&bboxJSON,
 		&e.SnapshotPath,
+		&frameWidth,
+		&frameHeight,
 		&raw,
 		&e.CreatedAt,
 	)
@@ -140,6 +156,12 @@ func scanEvent(s scanner) (Event, error) {
 	}
 	if raw.Valid && raw.String != "" {
 		e.RawPayload = &raw.String
+	}
+	if frameWidth.Valid {
+		e.FrameWidth = int(frameWidth.Int64)
+	}
+	if frameHeight.Valid {
+		e.FrameHeight = int(frameHeight.Int64)
 	}
 	return e, nil
 }
@@ -156,4 +178,11 @@ func ptrIfNonEmpty(v string) *string {
 		return nil
 	}
 	return &v
+}
+
+func nullableInt(v int) any {
+	if v <= 0 {
+		return nil
+	}
+	return v
 }

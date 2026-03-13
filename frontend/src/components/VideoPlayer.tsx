@@ -23,11 +23,29 @@ function captureScreenshot(video: HTMLVideoElement, label: string) {
 
 export type PlayerState = 'idle' | 'loading' | 'playing' | 'error'
 
+export interface OverlayDetection {
+  id: string
+  label: string
+  confidence: number
+  bbox: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+  frameWidth?: number
+  frameHeight?: number
+}
+
 export interface VideoPlayerProps {
   /** HLS manifest URL (e.g. /hls/camera-{id}/index.m3u8). When null, nothing is loaded. */
   hlsUrl: string | null
   /** Label used for screenshot filenames, e.g. camera name. */
   screenshotLabel?: string
+  /** Optional live detections to render on top of video. */
+  overlayDetections?: OverlayDetection[]
+  /** Controls whether live overlay boxes are visible. */
+  showOverlay?: boolean
   /** Called when user requests retry after an error. */
   onRetry?: () => void
   className?: string
@@ -37,29 +55,26 @@ function canPlayNativeHLS(video: HTMLVideoElement): boolean {
   return video.canPlayType('application/vnd.apple.mpegurl') !== ''
 }
 
-export function VideoPlayer({ hlsUrl, screenshotLabel = 'screenshot', onRetry, className = '' }: VideoPlayerProps) {
+export function VideoPlayer({
+  hlsUrl,
+  screenshotLabel = 'screenshot',
+  overlayDetections = [],
+  showOverlay = true,
+  onRetry,
+  className = '',
+}: VideoPlayerProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const hlsUrlRef = useRef<string | null>(null)
   const [state, setState] = useState<PlayerState>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [videoSize, setVideoSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
 
-  hlsUrlRef.current = hlsUrl
-
-  const cleanup = useCallback(() => {
-    const hls = hlsRef.current
-    if (hls) {
-      hls.destroy()
-      hlsRef.current = null
-    }
-    const video = videoRef.current
-    if (video) {
-      video.removeAttribute('src')
-      video.load()
-    }
-    setState('idle')
-    setErrorMessage(null)
-  }, [])
+  useEffect(() => {
+    hlsUrlRef.current = hlsUrl
+  }, [hlsUrl])
 
   const loadSource = useCallback((url: string) => {
     const video = videoRef.current
@@ -112,15 +127,17 @@ export function VideoPlayer({ hlsUrl, screenshotLabel = 'screenshot', onRetry, c
 
   useEffect(() => {
     if (!hlsUrl) {
-      cleanup()
       return
     }
     const video = videoRef.current
     if (!video) return
 
-    loadSource(hlsUrl)
+    const loadTimer = window.setTimeout(() => {
+      loadSource(hlsUrl)
+    }, 0)
 
     return () => {
+      window.clearTimeout(loadTimer)
       const hls = hlsRef.current
       if (hls) {
         hls.destroy()
@@ -131,20 +148,44 @@ export function VideoPlayer({ hlsUrl, screenshotLabel = 'screenshot', onRetry, c
       setState('idle')
       setErrorMessage(null)
     }
-  }, [hlsUrl, loadSource, cleanup])
+  }, [hlsUrl, loadSource])
 
   useEffect(() => {
     const video = videoRef.current
     if (!video || !hlsUrl) return
     const onWaiting = () => setState((s) => (s === 'playing' ? 'loading' : s))
     const onPlaying = () => setState((s) => (s === 'error' ? s : 'playing'))
+    const onMetadata = () => {
+      setVideoSize({
+        width: video.videoWidth || 0,
+        height: video.videoHeight || 0,
+      })
+    }
     video.addEventListener('waiting', onWaiting)
     video.addEventListener('playing', onPlaying)
+    video.addEventListener('loadedmetadata', onMetadata)
+    onMetadata()
     return () => {
       video.removeEventListener('waiting', onWaiting)
       video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('loadedmetadata', onMetadata)
     }
   }, [hlsUrl])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect()
+      setContainerSize({ width: rect.width, height: rect.height })
+    }
+
+    updateSize()
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   const handleRetry = useCallback(() => {
     const url = hlsUrlRef.current
@@ -172,8 +213,54 @@ export function VideoPlayer({ hlsUrl, screenshotLabel = 'screenshot', onRetry, c
     captureScreenshot(video, screenshotLabel)
   }, [screenshotLabel])
 
+  const getOverlayBox = useCallback((detection: OverlayDetection) => {
+    const cw = containerSize.width
+    const ch = containerSize.height
+    if (cw <= 0 || ch <= 0) {
+      return null
+    }
+
+    const sourceWidth = detection.frameWidth && detection.frameWidth > 0
+      ? detection.frameWidth
+      : videoSize.width
+    const sourceHeight = detection.frameHeight && detection.frameHeight > 0
+      ? detection.frameHeight
+      : videoSize.height
+    if (sourceWidth <= 0 || sourceHeight <= 0) {
+      return null
+    }
+
+    const videoAspectWidth = videoSize.width > 0 ? videoSize.width : sourceWidth
+    const videoAspectHeight = videoSize.height > 0 ? videoSize.height : sourceHeight
+    const scale = Math.min(cw / videoAspectWidth, ch / videoAspectHeight)
+    const renderedWidth = videoAspectWidth * scale
+    const renderedHeight = videoAspectHeight * scale
+    const offsetX = (cw - renderedWidth) / 2
+    const offsetY = (ch - renderedHeight) / 2
+
+    const xNorm = detection.bbox.x / sourceWidth
+    const yNorm = detection.bbox.y / sourceHeight
+    const wNorm = detection.bbox.width / sourceWidth
+    const hNorm = detection.bbox.height / sourceHeight
+
+    return {
+      left: offsetX + xNorm * renderedWidth,
+      top: offsetY + yNorm * renderedHeight,
+      width: wNorm * renderedWidth,
+      height: hNorm * renderedHeight,
+    }
+  }, [containerSize.height, containerSize.width, videoSize.height, videoSize.width])
+
+  const colorForLabel = useCallback((label: string) => {
+    const palette = ['#f97316', '#22c55e', '#06b6d4', '#eab308', '#a855f7', '#ef4444']
+    const seed = label
+      .split('')
+      .reduce((acc, char) => acc + char.charCodeAt(0), 0)
+    return palette[seed % palette.length]
+  }, [])
+
   return (
-    <div className={`relative aspect-video w-full overflow-hidden rounded-lg bg-black ${className}`}>
+    <div ref={containerRef} className={`relative aspect-video w-full overflow-hidden rounded-lg bg-black ${className}`}>
       <video
         ref={videoRef}
         className="h-full w-full object-contain"
@@ -183,6 +270,35 @@ export function VideoPlayer({ hlsUrl, screenshotLabel = 'screenshot', onRetry, c
         controls
         aria-label="Camera stream"
       />
+      {showOverlay && state === 'playing' && overlayDetections.length > 0 && (
+        <div className="pointer-events-none absolute inset-0">
+          {overlayDetections.map((detection) => {
+            const box = getOverlayBox(detection)
+            if (!box) return null
+            const color = colorForLabel(detection.label)
+            return (
+              <div
+                key={detection.id}
+                className="absolute rounded-md border-2 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+                style={{
+                  left: `${box.left}px`,
+                  top: `${box.top}px`,
+                  width: `${box.width}px`,
+                  height: `${box.height}px`,
+                  borderColor: color,
+                }}
+              >
+                <div
+                  className="absolute -top-6 left-0 rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
+                  style={{ backgroundColor: color }}
+                >
+                  {`${detection.label} ${(detection.confidence * 100).toFixed(0)}%`}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
       {/* Screenshot button — only shown when playing */}
       {state === 'playing' && (
         <div className="absolute right-2 top-2 opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-100 [.group:hover_&]:opacity-100">

@@ -4,6 +4,14 @@ export interface Camera {
   rtsp_url: string
   enabled: boolean
   record_enabled: boolean
+  detection_sample_seconds?: number
+  tracking_enabled: boolean
+  tracking_min_confidence: number
+  tracking_labels: string[]
+  discord_alerts_enabled: boolean
+  discord_webhook_url: string
+  discord_mention: string
+  discord_cooldown_seconds: number
   position: number
   created_at: string
   updated_at: string
@@ -14,6 +22,14 @@ export interface CreateCameraInput {
   rtsp_url: string
   enabled?: boolean
   record_enabled?: boolean
+  detection_sample_seconds?: number
+  tracking_enabled?: boolean
+  tracking_min_confidence?: number
+  tracking_labels?: string[]
+  discord_alerts_enabled?: boolean
+  discord_webhook_url?: string
+  discord_mention?: string
+  discord_cooldown_seconds?: number
 }
 
 export interface UpdateCameraInput {
@@ -21,6 +37,14 @@ export interface UpdateCameraInput {
   rtsp_url?: string
   enabled?: boolean
   record_enabled?: boolean
+  detection_sample_seconds?: number
+  tracking_enabled?: boolean
+  tracking_min_confidence?: number
+  tracking_labels?: string[]
+  discord_alerts_enabled?: boolean
+  discord_webhook_url?: string
+  discord_mention?: string
+  discord_cooldown_seconds?: number
   position?: number
 }
 

@@ -9,7 +9,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-2ea44f)](https://github.com/248Tech/RTSPanda)
 
-RTSPanda is a small app you run on your PC or server. You add your camera URLs, open a browser, and watch live—no account, no subscription, no data sent to the cloud. You can also record, take screenshots, and hook in your own alerts or motion detection.
+RTSPanda is a small app you run on your PC or server. You add your camera URLs, open a browser, and watch live—no account, no subscription, no data sent to the cloud. You can also record, take screenshots, run per-camera YOLOv8 tracking, view live overlays + event history, and send rich Discord alerts.
 
 ---
 
@@ -19,11 +19,13 @@ RTSPanda is a small app you run on your PC or server. You add your camera URLs, 
 
 ---
 
-## What is new in v0.0.2
+## What is new (latest)
 
-- Adds the AI detection foundation and API wiring for image interpretation workflows.
-- Includes Docker Compose support for running `rtspanda` with `ai-worker`.
-- Expands setup guidance for Windows and container-based installs.
+- Adds full per-camera YOLOv8 tracking controls in the UI (toggle, confidence, labels, sample interval).
+- Adds live overlay rendering and a detection event/history panel in camera view.
+- Adds per-camera Discord rich media alert delivery (webhook, mention, cooldown, snapshot attachment).
+- Persists detection frame dimensions for accurate overlay scaling.
+- Keeps Docker Compose support for running `rtspanda` with `ai-worker`.
 
 ---
 
@@ -222,8 +224,10 @@ Open **http://localhost:8080** in your browser. Add a camera in **Settings → C
 | **On-demand** | The app only connects to a camera when someone is watching. |
 | **Recording** | Turn on “Record to disk” per camera; get 1-hour MP4 files you can browse and download in the app. |
 | **Screenshots** | While watching, hover over the video and click to save a PNG. |
-| **Alerts** | Add rules per camera; your own scripts or AI can send events to the app via a webhook. |
-| **AI foundation (Phase 1)** | Optional async object-detection pipeline: FFmpeg frame sampling + YOLOv8 worker + stored detection events/snapshots. |
+| **YOLOv8 tracking UI** | Configure tracking per camera and run test detections directly in camera view. |
+| **Live overlays + history** | Show bounding boxes on live video and browse grouped detection snapshots/events. |
+| **Discord alerts** | Send rich webhook alerts with snapshot media, mention text, and cooldown per camera. |
+| **Advanced alert rules** | Keep optional rule/webhook APIs for custom external automation flows. |
 | **REST API** | Manage cameras, get stream status, list recordings, and trigger alerts from code or scripts. |
 
 ---

@@ -43,6 +43,7 @@ async def detect(
         raise HTTPException(status_code=400, detail=f"invalid image: {exc}") from exc
 
     frame = np.array(pil_image)
+    image_width, image_height = pil_image.size
     results = model.predict(source=frame, conf=CONFIDENCE, verbose=False)
 
     detections = []
@@ -69,5 +70,7 @@ async def detect(
     return {
         "camera_id": camera_id,
         "timestamp": response_ts,
+        "image_width": image_width,
+        "image_height": image_height,
         "detections": detections,
     }

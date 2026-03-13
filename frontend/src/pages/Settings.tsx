@@ -45,7 +45,6 @@ interface AlertFormValues {
 }
 
 interface AlertRuleFormProps {
-  cameraId: string
   rule?: AlertRule | null
   onSubmit: (values: AlertFormValues) => void
   onCancel: () => void
@@ -53,7 +52,7 @@ interface AlertRuleFormProps {
   isSubmitting?: boolean
 }
 
-function AlertRuleForm({ cameraId: _cameraId, rule, onSubmit, onCancel, submitError, isSubmitting = false }: AlertRuleFormProps) {
+function AlertRuleForm({ rule, onSubmit, onCancel, submitError, isSubmitting = false }: AlertRuleFormProps) {
   const [values, setValues] = useState<AlertFormValues>(() => ({
     name: rule?.name ?? '',
     type: rule?.type ?? 'connectivity',
@@ -335,7 +334,6 @@ function AlertsPanel({ cameras }: { cameras: Camera[] }) {
       {modalMode === 'add' && (
         <Modal title="Add Alert Rule" onClose={closeModal}>
           <AlertRuleForm
-            cameraId={selectedCameraId}
             onSubmit={handleFormSubmit}
             onCancel={closeModal}
             submitError={formError}
@@ -346,7 +344,6 @@ function AlertsPanel({ cameras }: { cameras: Camera[] }) {
       {modalMode === 'edit' && editingRule && (
         <Modal title="Edit Alert Rule" onClose={closeModal}>
           <AlertRuleForm
-            cameraId={selectedCameraId}
             rule={editingRule}
             onSubmit={handleFormSubmit}
             onCancel={closeModal}
@@ -505,6 +502,14 @@ export default function Settings() {
             rtsp_url: values.rtsp_url,
             enabled: values.enabled,
             record_enabled: values.record_enabled,
+            detection_sample_seconds: values.detection_sample_seconds,
+            tracking_enabled: values.tracking_enabled,
+            tracking_min_confidence: values.tracking_min_confidence,
+            tracking_labels: values.tracking_labels,
+            discord_alerts_enabled: values.discord_alerts_enabled,
+            discord_webhook_url: values.discord_webhook_url,
+            discord_mention: values.discord_mention,
+            discord_cooldown_seconds: values.discord_cooldown_seconds,
           })
           setCameras((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
         } else {
@@ -611,6 +616,22 @@ export default function Settings() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14" />
                           </svg>
                           Recording
+                        </span>
+                      )}
+                      {camera.tracking_enabled && (
+                        <span className="inline-flex items-center gap-1 text-xs text-accent">
+                          <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12h2m14 0h2M12 3v2m0 14v2M5.636 5.636l1.414 1.414m9.9 9.9l1.414 1.414m0-12.728l-1.414 1.414m-9.9 9.9l-1.414 1.414M12 8a4 4 0 100 8 4 4 0 000-8z" />
+                          </svg>
+                          YOLOv8
+                        </span>
+                      )}
+                      {camera.discord_alerts_enabled && (
+                        <span className="inline-flex items-center gap-1 text-xs text-status-online">
+                          <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path d="M20.317 4.369A19.791 19.791 0 0015.41 3a13.595 13.595 0 00-.63 1.295 18.256 18.256 0 00-5.557 0A13.595 13.595 0 008.593 3a19.736 19.736 0 00-4.908 1.37C.533 9.066-.32 13.64.099 18.146A19.9 19.9 0 006.13 21a14.487 14.487 0 001.292-2.116 12.885 12.885 0 01-2.035-.97c.171-.125.338-.257.5-.396a14.235 14.235 0 0012.23 0c.164.139.33.271.5.396a12.85 12.85 0 01-2.04.972A14.43 14.43 0 0017.87 21a19.886 19.886 0 006.03-2.854c.5-5.228-.837-9.76-3.583-13.777zM8.02 15.332c-1.184 0-2.155-1.085-2.155-2.418 0-1.333.952-2.418 2.155-2.418 1.206 0 2.178 1.105 2.156 2.418 0 1.333-.95 2.418-2.156 2.418zm7.96 0c-1.184 0-2.156-1.085-2.156-2.418 0-1.333.952-2.418 2.156-2.418 1.205 0 2.177 1.105 2.155 2.418 0 1.333-.95 2.418-2.155 2.418z" />
+                          </svg>
+                          Discord alerts
                         </span>
                       )}
                     </div>

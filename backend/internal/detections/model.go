@@ -16,9 +16,11 @@ type Detection struct {
 }
 
 type DetectResponse struct {
-	CameraID   string      `json:"camera_id,omitempty"`
-	Timestamp  string      `json:"timestamp"`
-	Detections []Detection `json:"detections"`
+	CameraID    string      `json:"camera_id,omitempty"`
+	Timestamp   string      `json:"timestamp"`
+	ImageWidth  int         `json:"image_width,omitempty"`
+	ImageHeight int         `json:"image_height,omitempty"`
+	Detections  []Detection `json:"detections"`
 }
 
 type Event struct {
@@ -28,6 +30,8 @@ type Event struct {
 	Confidence   float64   `json:"confidence"`
 	BBox         BBox      `json:"bbox"`
 	SnapshotPath string    `json:"snapshot_path"`
+	FrameWidth   int       `json:"frame_width,omitempty"`
+	FrameHeight  int       `json:"frame_height,omitempty"`
 	RawPayload   *string   `json:"raw_payload,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }

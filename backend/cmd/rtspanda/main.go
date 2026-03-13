@@ -18,6 +18,7 @@ import (
 	"github.com/rtspanda/rtspanda/internal/db"
 	"github.com/rtspanda/rtspanda/internal/detections"
 	"github.com/rtspanda/rtspanda/internal/logs"
+	"github.com/rtspanda/rtspanda/internal/notifications"
 	"github.com/rtspanda/rtspanda/internal/recordings"
 	"github.com/rtspanda/rtspanda/internal/streams"
 )
@@ -53,6 +54,7 @@ func main() {
 
 	// Detection event repository
 	detectionRepo := detections.NewRepository(database.DB)
+	discordNotifier := notifications.NewDiscordNotifier(15 * time.Second)
 
 	// Log buffer for Settings → Logs page (tee log output)
 	logBuf := logs.NewBuffer(1000)
@@ -80,6 +82,7 @@ func main() {
 		DefaultSampleInterval: time.Duration(envIntOrDefault("DETECTION_SAMPLE_INTERVAL_SECONDS", 30)) * time.Second,
 		QueueSize:             envIntOrDefault("DETECTION_QUEUE_SIZE", 128),
 		WorkerConcurrency:     envIntOrDefault("DETECTION_WORKERS", 2),
+		Notifier:              discordNotifier,
 	})
 	if err := detectionMgr.Start(ctx, cameraList); err != nil {
 		log.Fatalf("start detections: %v", err)

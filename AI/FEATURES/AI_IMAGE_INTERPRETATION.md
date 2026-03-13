@@ -1,21 +1,22 @@
-# Feature Spec: AI Image Interpretation (Phase 1 Foundation)
+# Feature Spec: AI Image Interpretation
 
-Status: Implemented foundation
-Last updated: 2026-03-12
+Status: Implemented (foundation + UI + Discord alerts)  
+Last updated: 2026-03-13
 
 ---
 
 ## Implemented Scope
 
-RTSPanda now has a first-stage async object-detection pipeline:
+RTSPanda now includes a full first-pass object-detection product loop:
 
-1. Go backend samples frames from configured RTSP cameras with FFmpeg.
-2. Samples are queued internally and processed asynchronously.
-3. A separate Python FastAPI worker runs YOLOv8 inference.
-4. Structured detections are returned and persisted as detection events.
-5. Detection snapshots are stored on disk and linked to event records.
+1. Per-camera scheduling and AI tracking controls
+2. Async frame sampling + YOLOv8 inference pipeline
+3. Detection event and snapshot persistence
+4. Live overlay rendering in camera view
+5. Detection event/history browsing in UI
+6. Per-camera Discord rich-media webhook alerts
 
-This is foundation infrastructure only. No rules engine, tracking, or user notifications are included.
+AI inference remains decoupled from live playback path.
 
 ---
 
@@ -24,37 +25,38 @@ This is foundation infrastructure only. No rules engine, tracking, or user notif
 ```
 RTSP Camera
    │
-   ├─(independent live path)────► mediamtx ───► HLS ───► Browser
+   ├─(live path)──────────────► mediamtx ───► HLS ───► Browser Player + Overlay
    │
-   └─(AI sample path)───────────► FFmpeg frame capture (Go)
-                                  │
-                                  ▼
-                            Async in-memory queue (Go)
-                                  │
-                                  ▼
-                        Python AI worker (FastAPI + YOLOv8)
-                                  │
-                                  ▼
-                      detection_events (SQLite) + snapshots on disk
+   └─(AI sample path)─────────► FFmpeg capture (Go)
+                                 │
+                                 ▼
+                           Async queue/workers (Go)
+                                 │
+                                 ▼
+                       FastAPI worker + YOLOv8 (Python)
+                                 │
+                                 ▼
+              detection_events + snapshots + optional Discord webhook
 ```
-
-Key rule preserved: AI inference is not in the viewer/live stream path.
 
 ---
 
 ## Backend Components
 
+- `backend/internal/cameras/*`
+  - Stores per-camera AI and Discord settings
+  - Validates confidence/webhook/cooldown inputs
 - `backend/internal/detections/manager.go`
-  - Camera sampler lifecycle (`OnCameraAdded/Updated/Removed`)
-  - Async queue and worker goroutines
-  - Detector HTTP calls
-  - Event persistence and snapshot retention policy
-- `backend/internal/detections/capture.go`
-  - FFmpeg single-frame extraction from camera RTSP URL
-- `backend/internal/detections/client.go`
-  - HTTP client for detector `/detect` and `/health`
-- `backend/internal/detections/repository.go`
-  - SQLite CRUD for `detection_events`
+  - Starts samplers only when `tracking_enabled`
+  - Filters detections by confidence and labels
+  - Persists events with frame dimensions
+  - Calls alert notifier hook
+- `backend/internal/notifications/discord.go`
+  - Sends rich embeds with attached snapshot
+  - Supports mention text and per-camera cooldown
+- `backend/internal/db/migrations/004_camera_tracking_discord.sql`
+  - Adds new camera AI/Discord columns
+  - Adds `frame_width` and `frame_height` to detection events
 
 ---
 
@@ -62,56 +64,64 @@ Key rule preserved: AI inference is not in the viewer/live stream path.
 
 - `ai_worker/app/main.py`
   - `GET /health`
-  - `POST /detect` (multipart image upload + optional `camera_id`/`timestamp`)
-  - YOLO model loaded once on startup via Ultralytics
-- `ai_worker/Dockerfile`
-  - Containerized detector service for compose deployment
+  - `POST /detect`
+  - Returns detections plus `image_width` and `image_height`
 
 ---
 
-## Storage
+## Frontend Components
 
-- Snapshot root: `DATA_DIR/snapshots/detections/{camera_id}/`
-- SQLite events table: `detection_events`
-  - `id`
-  - `camera_id`
-  - `object_label`
-  - `confidence`
-  - `bbox_json`
-  - `snapshot_path`
-  - `raw_payload` (optional)
-  - `created_at`
-
-Snapshots are kept only for frames with detections (non-detection frames are deleted).
+- `frontend/src/components/CameraForm.tsx`
+  - Tracking config UI
+  - Discord alert config UI
+- `frontend/src/components/VideoPlayer.tsx`
+  - Live overlay bounding boxes and labels
+  - Scaled correctly using source frame dimensions
+- `frontend/src/pages/CameraView.tsx`
+  - Tracking toggle
+  - Overlay toggle
+  - Test detection action
+  - Detection history panel with snapshot thumbnails
 
 ---
 
-## API Surface (Go backend)
+## API Surface
+
+Existing detection endpoints (active):
 
 - `GET /api/v1/detections/health`
 - `POST /api/v1/cameras/{id}/detections/test-frame`
 - `POST /api/v1/cameras/{id}/detections/test`
-- `GET /api/v1/detection-events?limit=100&camera_id=...`
+- `GET /api/v1/detection-events?limit=...&camera_id=...`
 - `GET /api/v1/detection-events/{id}/snapshot`
 
+Camera CRUD now accepts/returns:
+
+- `tracking_enabled`
+- `tracking_min_confidence`
+- `tracking_labels`
+- `discord_alerts_enabled`
+- `discord_webhook_url`
+- `discord_mention`
+- `discord_cooldown_seconds`
+
 ---
 
-## Config
+## Runtime Config
 
-- `FFMPEG_BIN` (default `ffmpeg`)
-- `DETECTOR_URL` (default `http://127.0.0.1:8090`)
-- `DETECTION_SAMPLE_INTERVAL_SECONDS` (default `30`)
-- `DETECTION_WORKERS` (default `2`)
-- `DETECTION_QUEUE_SIZE` (default `128`)
-- camera-level override: `detection_sample_seconds` (nullable)
+- `FFMPEG_BIN`
+- `DETECTOR_URL`
+- `DETECTION_SAMPLE_INTERVAL_SECONDS`
+- `DETECTION_WORKERS`
+- `DETECTION_QUEUE_SIZE`
+- `YOLO_MODEL` (worker)
+- `YOLO_CONFIDENCE` (worker baseline)
 
 ---
 
-## Non-Goals (Still Out of Scope)
+## Non-Goals / Remaining Work
 
-- Notifications (Discord/email/push)
-- Motion zones or tracking
-- Rules engine / suppression windows
-- Live overlay rendering
-- Clip generation tied to detections
-- Custom model training
+- Multi-frame object ID tracking (track IDs across frames)
+- Retention/TTL for old detection snapshots and events
+- Notification retry/backoff queueing
+- Advanced suppression windows and rules engine integration

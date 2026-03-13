@@ -1,6 +1,6 @@
 # RTSPanda — User Guide
 
-> Start to finish: installation, first camera, live streaming, recording, screenshots, and AI alerts.
+> Start to finish: installation, first camera, live streaming, recording, screenshots, YOLOv8 tracking, and Discord alerts.
 
 ---
 
@@ -24,10 +24,12 @@
    - [Enabling recording](#enabling-recording)
    - [Browsing and downloading recordings](#browsing-and-downloading-recordings)
    - [Deleting recordings](#deleting-recordings)
-9. [AI Alert Rules](#9-ai-alert-rules)
-   - [What alert rules are](#what-alert-rules-are)
-   - [Creating a rule](#creating-a-rule)
-   - [Connecting an AI model or script](#connecting-an-ai-model-or-script)
+9. [AI Tracking and Alerts](#9-ai-tracking-and-alerts)
+   - [YOLOv8 tracking per camera](#yolov8-tracking-per-camera)
+   - [Live overlays in camera view](#live-overlays-in-camera-view)
+   - [Detection event history panel](#detection-event-history-panel)
+   - [Discord rich media alerts](#discord-rich-media-alerts)
+   - [Optional alert rules and webhooks (advanced)](#optional-alert-rules-and-webhooks-advanced)
 10. [Managing cameras](#10-managing-cameras)
 11. [Finding your RTSP URL](#11-finding-your-rtsp-url)
 12. [Testing without a real camera](#12-testing-without-a-real-camera)
@@ -52,7 +54,10 @@ It ships as a **single file** that contains the entire web server and user inter
 - Saves screenshot PNGs with one click while watching
 - Records continuous MP4 segments to disk per camera (optional)
 - Lets you browse, download, and delete recordings from the browser
-- Stores alert rules per camera so an external AI script or motion detector can log events
+- Runs YOLOv8 detection per camera with configurable thresholds and label filters
+- Draws live bounding-box overlays on video playback
+- Stores detection history with snapshot previews
+- Sends rich Discord webhook alerts with snapshot attachments (optional)
 
 **What it is not:**
 
@@ -93,7 +98,7 @@ Your RTSP camera
 
 | Requirement | Minimum version | Where to get it |
 |-------------|----------------|-----------------|
-| Go | 1.22 | [golang.org/dl](https://golang.org/dl/) |
+| Go | 1.26 | [golang.org/dl](https://golang.org/dl/) |
 | Node.js | 18 | [nodejs.org](https://nodejs.org/) |
 | npm | 9 | Comes with Node.js |
 | Git | any | [git-scm.com](https://git-scm.com/) |
@@ -303,85 +308,64 @@ In the Recordings panel, click the **trash icon** next to any recording. You wil
 
 ---
 
-## 9. AI Alert Rules
+## 9. AI Tracking and Alerts
 
-### What alert rules are
+### YOLOv8 tracking per camera
 
-Alert rules define conditions that should be watched for on a camera. RTSPanda stores these rules and logs events when they fire. The detection itself is done by an external system (a script, an AI model, another service) that calls RTSPanda's webhook endpoint.
+YOLOv8 tracking is configured per camera in **Settings → Cameras → Add/Edit**.
 
-Think of it as: **RTSPanda manages the rules and event history. Your detector triggers them.**
+Tracking fields:
 
-Three rule types are available:
+- **YOLOv8 Tracking: Enabled**
+- **Sample interval (seconds)**: how often a frame is captured for inference
+- **Minimum confidence (0–1)**: detections below this are ignored
+- **Track labels (optional)**: comma-separated allow-list (for example `person, car`)
 
-| Type | Description | Detection method |
-|------|-------------|-----------------|
-| **Connectivity** | Camera goes offline or comes back online | Can be done by polling the stream status API |
-| **Motion** | Movement detected in the frame | External script reading the HLS feed |
-| **Object Detection** | Specific object found in the frame | AI model (e.g. YOLO) reading the HLS feed |
+When tracking is enabled, RTSPanda samples frames with FFmpeg, sends them to the AI worker, and stores detections as events.
 
-### Creating a rule
+### Live overlays in camera view
 
-1. Go to **Settings** and click the **AI Alerts** tab
-2. Select the camera from the dropdown at the top
-3. Click **+ Add Rule**
-4. Give the rule a name (e.g. `Person detected at front door`)
-5. Select the rule type
-6. Leave **Enabled** ticked
-7. Click **Add Rule**
+In single-camera view:
 
-Rules can be individually enabled or disabled with the toggle button on each row without deleting them.
+- Click **Overlay On/Off** to show or hide live bounding boxes
+- Overlays show the label and confidence for recent detections
+- Overlay placement is scaled against source frame dimensions so boxes line up across aspect ratios
 
-### Connecting an AI model or script
+### Detection event history panel
 
-Once a rule exists, external systems trigger it by sending a POST request to the RTSPanda API. You need the rule's ID, which appears in the browser URL when you view its events, or you can get it from the API:
+In single-camera view, below the player, the **Detection Event History** panel shows:
 
-```bash
-# List rules for a camera
-curl http://localhost:8080/api/v1/cameras/{camera-id}/alerts
-```
+- Grouped detection events by snapshot timestamp
+- Snapshot preview images
+- Labels and confidence chips for each detected object
 
-Then trigger an event:
+Use **Refresh** to pull latest events immediately.
 
-```bash
-curl -X POST http://localhost:8080/api/v1/alerts/{rule-id}/events \
-  -H "Content-Type: application/json" \
-  -d '{
-    "snapshot_path": "/optional/path/to/saved/frame.jpg",
-    "metadata": "{\"confidence\": 0.92, \"label\": \"person\"}"
-  }'
-```
+### Discord rich media alerts
 
-Both fields are optional. `metadata` is a freeform JSON string — include whatever your detector produces.
+Discord alerts are also configured per camera in **Settings → Cameras → Add/Edit**.
 
-**Example: connectivity monitoring script**
+Fields:
 
-```bash
-#!/bin/bash
-# Poll stream status every minute and trigger the rule if offline
-RULE_ID="your-rule-id-here"
-BASE="http://localhost:8080/api/v1"
-CAMERA_ID="your-camera-id-here"
+- **Discord Rich Alerts: Enabled**
+- **Webhook URL** (required when enabled)
+- **Mention** (optional, e.g. `@here` or `<@123...>`)
+- **Cooldown (seconds)** to avoid spam
 
-while true; do
-  STATUS=$(curl -s "$BASE/cameras/$CAMERA_ID/stream" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
-  if [ "$STATUS" = "offline" ]; then
-    curl -s -X POST "$BASE/alerts/$RULE_ID/events" \
-      -H "Content-Type: application/json" \
-      -d '{"metadata":"{\"reason\":\"stream offline\"}"}'
-  fi
-  sleep 60
-done
-```
+When active, detection batches send a Discord embed with:
 
-**Example: using the HLS feed with a Python AI model**
+- Camera name and detection summary
+- Confidence and bbox details
+- Attached snapshot image (rich media)
 
-Your AI model can consume the HLS stream directly:
+### Optional alert rules and webhooks (advanced)
 
-```
-http://localhost:8080/hls/camera-{id}/index.m3u8
-```
+The original **AI Alerts** tab is still available for advanced workflows where external systems trigger custom events via API.
+If you already have your own detector stack, you can keep using:
 
-Feed this URL to any HLS-compatible library (e.g. OpenCV with FFmpeg backend, imageio, etc.) and call the webhook when a detection fires.
+- `POST /api/v1/alerts/{id}/events`
+
+for manual or third-party alert event ingestion.
 
 ---
 
@@ -396,6 +380,8 @@ Click **Edit** on any camera row. You can change:
 - RTSP URL
 - Enabled / disabled state
 - Record to disk on/off
+- YOLOv8 tracking settings (toggle, interval, threshold, labels)
+- Discord alert settings (toggle, webhook, mention, cooldown)
 
 Changes take effect immediately. If you change the RTSP URL, mediamtx reconnects to the new address.
 
@@ -514,6 +500,13 @@ Set these before running the binary to customise behaviour. No config file is ne
 | `PORT` | `8080` | HTTP port RTSPanda listens on |
 | `DATA_DIR` | `./data` | Where to store the database and recordings |
 | `MEDIAMTX_BIN` | auto | Explicit path to mediamtx binary |
+| `FFMPEG_BIN` | `ffmpeg` | FFmpeg binary used for detection frame capture |
+| `DETECTOR_URL` | `http://127.0.0.1:8090` | AI worker base URL |
+| `DETECTION_SAMPLE_INTERVAL_SECONDS` | `30` | Global detection sample interval fallback |
+| `DETECTION_WORKERS` | `2` | Detection worker concurrency |
+| `DETECTION_QUEUE_SIZE` | `128` | In-memory detection queue capacity |
+| `YOLO_MODEL` | `yolov8n.pt` | AI worker model (worker container/env) |
+| `YOLO_CONFIDENCE` | `0.25` | AI worker baseline confidence (before per-camera filtering) |
 
 ### Examples
 
@@ -530,6 +523,16 @@ DATA_DIR=/mnt/recordings ./backend/rtspanda
 **Use a mediamtx binary in a custom location:**
 ```bash
 MEDIAMTX_BIN=/opt/mediamtx/mediamtx ./backend/rtspanda
+```
+
+**Point RTSPanda to a remote detector worker:**
+```bash
+DETECTOR_URL=http://10.0.0.50:8090 ./backend/rtspanda
+```
+
+**Tune global detection sampling fallback:**
+```bash
+DETECTION_SAMPLE_INTERVAL_SECONDS=10 DETECTION_WORKERS=4 ./backend/rtspanda
 ```
 
 **Windows PowerShell equivalent:**
@@ -641,6 +644,22 @@ Fix: make sure the mediamtx binary is at `mediamtx/mediamtx` (or `mediamtx/media
 - Check that `DATA_DIR` is writable by the process
 - Recordings appear after the first hour boundary. If you enabled recording 30 minutes ago, you will not see a file yet — the current segment is still being written
 
+### No detection overlays or history appear
+
+- Confirm tracking is enabled for that camera (Settings → Cameras → Edit)
+- In camera view, click **Run Test Detection** and check for a success message
+- Check AI worker health: `GET /api/v1/detections/health`
+- Verify `ffmpeg` is installed and reachable (`FFMPEG_BIN`)
+- If using Docker Compose, ensure both `rtspanda` and `ai-worker` containers are up
+
+### Discord alerts are not arriving
+
+- Verify camera-level **Discord Rich Alerts** is enabled
+- Confirm webhook URL is valid and starts with `https://`
+- Set cooldown to a lower number while testing
+- Use **Run Test Detection** on a scene that reliably triggers detections
+- Inspect server logs for webhook delivery errors
+
 ### Build fails
 
 **`npm run build` fails:**
@@ -707,7 +726,15 @@ GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
   "name": "Front Door",
   "rtsp_url": "rtsp://admin:pass@192.168.1.10:554/stream",
   "enabled": true,
-  "record_enabled": false
+  "record_enabled": false,
+  "tracking_enabled": true,
+  "detection_sample_seconds": 15,
+  "tracking_min_confidence": 0.45,
+  "tracking_labels": ["person", "car"],
+  "discord_alerts_enabled": true,
+  "discord_webhook_url": "https://discord.com/api/webhooks/...",
+  "discord_mention": "@here",
+  "discord_cooldown_seconds": 90
 }
 ```
 
@@ -719,6 +746,14 @@ GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
   "rtsp_url": "rtsp://admin:pass@192.168.1.10:554/stream",
   "enabled": true,
   "record_enabled": false,
+  "detection_sample_seconds": 15,
+  "tracking_enabled": true,
+  "tracking_min_confidence": 0.45,
+  "tracking_labels": ["person", "car"],
+  "discord_alerts_enabled": true,
+  "discord_webhook_url": "https://discord.com/api/webhooks/...",
+  "discord_mention": "@here",
+  "discord_cooldown_seconds": 90,
   "position": 0,
   "created_at": "2025-01-01T00:00:00Z",
   "updated_at": "2025-01-01T00:00:00Z"
@@ -730,6 +765,31 @@ GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
 {
   "hls_url": "/hls/camera-550e8400.../index.m3u8",
   "status": "online"
+}
+```
+
+### Detection endpoints
+
+```http
+GET    /api/v1/detections/health
+POST   /api/v1/cameras/{id}/detections/test-frame
+POST   /api/v1/cameras/{id}/detections/test
+GET    /api/v1/detection-events?limit=100&camera_id={id}
+GET    /api/v1/detection-events/{id}/snapshot
+```
+
+**Detection event object (response):**
+```json
+{
+  "id": "event-id",
+  "camera_id": "camera-id",
+  "object_label": "person",
+  "confidence": 0.92,
+  "bbox": {"x": 123, "y": 45, "width": 210, "height": 420},
+  "snapshot_path": "data/snapshots/detections/camera-id/20260313T032200Z.jpg",
+  "frame_width": 1920,
+  "frame_height": 1080,
+  "created_at": "2026-03-13T03:22:00Z"
 }
 ```
 

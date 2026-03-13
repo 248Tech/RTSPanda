@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,11 @@ type Config struct {
 	DefaultSampleInterval time.Duration
 	QueueSize             int
 	WorkerConcurrency     int
+	Notifier              AlertNotifier
+}
+
+type AlertNotifier interface {
+	NotifyDetectionEvents(ctx context.Context, camera cameras.Camera, snapshot Snapshot, events []Event) error
 }
 
 type Manager struct {
@@ -31,6 +37,7 @@ type Manager struct {
 	queue          chan detectJob
 	workerCount    int
 	samplerEnabled bool
+	notifier       AlertNotifier
 
 	mu      sync.Mutex
 	ctx     context.Context
@@ -73,6 +80,7 @@ func NewManager(dataDir string, repo *Repository, cfg Config) *Manager {
 		queue:          make(chan detectJob, cfg.QueueSize),
 		workerCount:    cfg.WorkerConcurrency,
 		samplerEnabled: ffmpegOK,
+		notifier:       cfg.Notifier,
 		cancels:        make(map[string]context.CancelFunc),
 	}
 }
@@ -95,7 +103,7 @@ func (m *Manager) Start(ctx context.Context, cameraList []cameras.Camera) error 
 	}
 
 	for _, camera := range cameraList {
-		if camera.Enabled {
+		if m.shouldSample(camera) {
 			m.OnCameraAdded(camera)
 		}
 	}
@@ -103,7 +111,7 @@ func (m *Manager) Start(ctx context.Context, cameraList []cameras.Camera) error 
 }
 
 func (m *Manager) OnCameraAdded(camera cameras.Camera) {
-	if !camera.Enabled {
+	if !m.shouldSample(camera) {
 		return
 	}
 
@@ -126,7 +134,7 @@ func (m *Manager) OnCameraUpdated(camera cameras.Camera) {
 	}
 
 	m.stopSamplerLocked(camera.ID)
-	if camera.Enabled {
+	if m.shouldSample(camera) {
 		m.startSamplerLocked(camera)
 	}
 }
@@ -161,16 +169,18 @@ func (m *Manager) TriggerTestDetection(camera cameras.Camera) (Snapshot, DetectR
 	}
 	log.Printf("detections: detector request success camera=%s detections=%d", camera.ID, len(response.Detections))
 
-	if len(response.Detections) == 0 {
+	filtered := m.filterDetections(camera, response.Detections)
+	if len(filtered) == 0 {
 		_ = os.Remove(snap.Path)
 		return Snapshot{}, response, nil
 	}
 
-	if _, err := m.repo.CreateEvents(camera.ID, snap.Path, snap.Timestamp, response.Detections, raw); err != nil {
+	if _, err := m.repo.CreateEvents(camera.ID, snap.Path, snap.Timestamp, response.ImageWidth, response.ImageHeight, filtered, raw); err != nil {
 		log.Printf("detections: event creation failed camera=%s err=%v", camera.ID, err)
 		return Snapshot{}, DetectResponse{}, err
 	}
-	log.Printf("detections: event creation success camera=%s count=%d snapshot=%s", camera.ID, len(response.Detections), snap.Path)
+	log.Printf("detections: event creation success camera=%s count=%d snapshot=%s", camera.ID, len(filtered), snap.Path)
+	response.Detections = filtered
 	return snap, response, nil
 }
 
@@ -283,12 +293,34 @@ func (m *Manager) handleJob(workerID int, job detectJob) {
 		return
 	}
 
-	events, err := m.repo.CreateEvents(job.camera.ID, job.snapshot.Path, job.snapshot.Timestamp, response.Detections, raw)
+	filtered := m.filterDetections(job.camera, response.Detections)
+	if len(filtered) == 0 {
+		_ = os.Remove(job.snapshot.Path)
+		return
+	}
+
+	events, err := m.repo.CreateEvents(
+		job.camera.ID,
+		job.snapshot.Path,
+		job.snapshot.Timestamp,
+		response.ImageWidth,
+		response.ImageHeight,
+		filtered,
+		raw,
+	)
 	if err != nil {
 		log.Printf("detections: event creation failed worker=%d camera=%s err=%v", workerID, job.camera.ID, err)
 		return
 	}
 	log.Printf("detections: event creation success worker=%d camera=%s count=%d snapshot=%s", workerID, job.camera.ID, len(events), job.snapshot.Path)
+
+	if m.notifier != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if err := m.notifier.NotifyDetectionEvents(ctx, job.camera, job.snapshot, events); err != nil {
+			log.Printf("detections: notifier failed worker=%d camera=%s err=%v", workerID, job.camera.ID, err)
+		}
+	}
 }
 
 func resolveFFmpeg(configured string) (string, bool) {
@@ -309,4 +341,45 @@ func resolveFFmpeg(configured string) (string, bool) {
 
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound)
+}
+
+func (m *Manager) shouldSample(camera cameras.Camera) bool {
+	return camera.Enabled && camera.TrackingEnabled
+}
+
+func (m *Manager) filterDetections(camera cameras.Camera, detections []Detection) []Detection {
+	if len(detections) == 0 {
+		return []Detection{}
+	}
+
+	minConfidence := camera.TrackingMinConfidence
+	if minConfidence <= 0 {
+		minConfidence = 0.25
+	}
+
+	labelFilter := make(map[string]struct{}, len(camera.TrackingLabels))
+	for _, label := range camera.TrackingLabels {
+		trimmed := strings.ToLower(strings.TrimSpace(label))
+		if trimmed == "" {
+			continue
+		}
+		labelFilter[trimmed] = struct{}{}
+	}
+
+	filtered := make([]Detection, 0, len(detections))
+	for _, detection := range detections {
+		if detection.Confidence < minConfidence {
+			continue
+		}
+
+		if len(labelFilter) > 0 {
+			label := strings.ToLower(strings.TrimSpace(detection.Label))
+			if _, ok := labelFilter[label]; !ok {
+				continue
+			}
+		}
+
+		filtered = append(filtered, detection)
+	}
+	return filtered
 }

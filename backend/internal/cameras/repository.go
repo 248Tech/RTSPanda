@@ -2,7 +2,9 @@ package cameras
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -16,7 +18,8 @@ func NewRepository(db *sql.DB) *Repository {
 
 func (r *Repository) List() ([]Camera, error) {
 	rows, err := r.db.Query(
-		`SELECT id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, position, created_at, updated_at
+		`SELECT id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, tracking_enabled, tracking_min_confidence, tracking_labels,
+		        discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds, position, created_at, updated_at
 		 FROM cameras ORDER BY position, created_at`,
 	)
 	if err != nil {
@@ -37,7 +40,8 @@ func (r *Repository) List() ([]Camera, error) {
 
 func (r *Repository) GetByID(id string) (Camera, error) {
 	row := r.db.QueryRow(
-		`SELECT id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, position, created_at, updated_at
+		`SELECT id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, tracking_enabled, tracking_min_confidence, tracking_labels,
+		        discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds, position, created_at, updated_at
 		 FROM cameras WHERE id = ?`, id,
 	)
 	c, err := scanCamera(row)
@@ -48,18 +52,61 @@ func (r *Repository) GetByID(id string) (Camera, error) {
 }
 
 func (r *Repository) Create(c Camera) error {
-	_, err := r.db.Exec(
-		`INSERT INTO cameras (id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.Name, c.RTSPURL, boolToInt(c.Enabled), boolToInt(c.RecordEnabled), nullableInt(c.DetectionSampleSeconds), c.Position, c.CreatedAt, c.UpdatedAt,
+	trackingLabelsJSON, err := json.Marshal(c.TrackingLabels)
+	if err != nil {
+		return fmt.Errorf("encode tracking labels: %w", err)
+	}
+
+	_, err = r.db.Exec(
+		`INSERT INTO cameras (id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, tracking_enabled, tracking_min_confidence, tracking_labels,
+		                     discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds, position, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID,
+		c.Name,
+		c.RTSPURL,
+		boolToInt(c.Enabled),
+		boolToInt(c.RecordEnabled),
+		nullableInt(c.DetectionSampleSeconds),
+		boolToInt(c.TrackingEnabled),
+		c.TrackingMinConfidence,
+		string(trackingLabelsJSON),
+		boolToInt(c.DiscordAlertsEnabled),
+		c.DiscordWebhookURL,
+		c.DiscordMention,
+		c.DiscordCooldownSeconds,
+		c.Position,
+		c.CreatedAt,
+		c.UpdatedAt,
 	)
 	return err
 }
 
 func (r *Repository) Update(c Camera) error {
+	trackingLabelsJSON, err := json.Marshal(c.TrackingLabels)
+	if err != nil {
+		return fmt.Errorf("encode tracking labels: %w", err)
+	}
+
 	res, err := r.db.Exec(
-		`UPDATE cameras SET name=?, rtsp_url=?, enabled=?, record_enabled=?, detection_sample_seconds=?, position=?, updated_at=? WHERE id=?`,
-		c.Name, c.RTSPURL, boolToInt(c.Enabled), boolToInt(c.RecordEnabled), nullableInt(c.DetectionSampleSeconds), c.Position, time.Now(), c.ID,
+		`UPDATE cameras
+		 SET name=?, rtsp_url=?, enabled=?, record_enabled=?, detection_sample_seconds=?, tracking_enabled=?, tracking_min_confidence=?, tracking_labels=?,
+		     discord_alerts_enabled=?, discord_webhook_url=?, discord_mention=?, discord_cooldown_seconds=?, position=?, updated_at=?
+		 WHERE id=?`,
+		c.Name,
+		c.RTSPURL,
+		boolToInt(c.Enabled),
+		boolToInt(c.RecordEnabled),
+		nullableInt(c.DetectionSampleSeconds),
+		boolToInt(c.TrackingEnabled),
+		c.TrackingMinConfidence,
+		string(trackingLabelsJSON),
+		boolToInt(c.DiscordAlertsEnabled),
+		c.DiscordWebhookURL,
+		c.DiscordMention,
+		c.DiscordCooldownSeconds,
+		c.Position,
+		time.Now(),
+		c.ID,
 	)
 	if err != nil {
 		return err
@@ -90,15 +137,63 @@ type scanner interface {
 func scanCamera(s scanner) (Camera, error) {
 	var c Camera
 	var enabled, recordEnabled int
+	var trackingEnabled, discordAlertsEnabled int
+	var trackingLabelsRaw string
+	var trackingMinConfidence sql.NullFloat64
+	var discordWebhookURL, discordMention sql.NullString
+	var discordCooldownSeconds sql.NullInt64
 	var sampleSeconds sql.NullInt64
-	err := s.Scan(&c.ID, &c.Name, &c.RTSPURL, &enabled, &recordEnabled, &sampleSeconds, &c.Position, &c.CreatedAt, &c.UpdatedAt)
+	err := s.Scan(
+		&c.ID,
+		&c.Name,
+		&c.RTSPURL,
+		&enabled,
+		&recordEnabled,
+		&sampleSeconds,
+		&trackingEnabled,
+		&trackingMinConfidence,
+		&trackingLabelsRaw,
+		&discordAlertsEnabled,
+		&discordWebhookURL,
+		&discordMention,
+		&discordCooldownSeconds,
+		&c.Position,
+		&c.CreatedAt,
+		&c.UpdatedAt,
+	)
+	if err != nil {
+		return Camera{}, err
+	}
+
 	c.Enabled = enabled != 0
 	c.RecordEnabled = recordEnabled != 0
+	c.TrackingEnabled = trackingEnabled != 0
+	c.DiscordAlertsEnabled = discordAlertsEnabled != 0
 	if sampleSeconds.Valid {
 		v := int(sampleSeconds.Int64)
 		c.DetectionSampleSeconds = &v
 	}
-	return c, err
+	if trackingMinConfidence.Valid {
+		c.TrackingMinConfidence = trackingMinConfidence.Float64
+	}
+	if c.TrackingMinConfidence <= 0 {
+		c.TrackingMinConfidence = 0.25
+	}
+
+	c.TrackingLabels = decodeTrackingLabels(trackingLabelsRaw)
+	if discordWebhookURL.Valid {
+		c.DiscordWebhookURL = strings.TrimSpace(discordWebhookURL.String)
+	}
+	if discordMention.Valid {
+		c.DiscordMention = strings.TrimSpace(discordMention.String)
+	}
+	if discordCooldownSeconds.Valid {
+		c.DiscordCooldownSeconds = int(discordCooldownSeconds.Int64)
+	}
+	if c.DiscordCooldownSeconds < 0 {
+		c.DiscordCooldownSeconds = 0
+	}
+	return c, nil
 }
 
 func boolToInt(b bool) int {
@@ -113,4 +208,20 @@ func nullableInt(v *int) any {
 		return nil
 	}
 	return *v
+}
+
+func decodeTrackingLabels(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []string{}
+	}
+
+	labels := []string{}
+	if err := json.Unmarshal([]byte(raw), &labels); err == nil {
+		return normalizeTrackingLabels(labels)
+	}
+
+	// Backward-compatible fallback for any legacy comma-separated data.
+	parts := strings.Split(raw, ",")
+	return normalizeTrackingLabels(parts)
 }

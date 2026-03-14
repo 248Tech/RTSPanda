@@ -19,13 +19,14 @@ RTSPanda is a small app you run on your PC or server. You add your camera URLs, 
 
 ---
 
-## What is new (latest)
+## What is new (v0.0.3)
 
-- Adds full per-camera YOLOv8 tracking controls in the UI (toggle, confidence, labels, sample interval).
-- Adds live overlay rendering and a detection event/history panel in camera view.
-- Adds per-camera Discord rich media alert delivery (webhook, mention, cooldown, snapshot attachment).
-- Persists detection frame dimensions for accurate overlay scaling.
-- Keeps Docker Compose support for running `rtspanda` with `ai-worker`.
+- Fixes detector reliability in Docker by stabilizing `ai-worker` runtime dependencies and improving detector URL fallback behavior.
+- Adds verbose YOLO request/detection logging in backend and AI worker for faster troubleshooting.
+- Adds per-camera Discord trigger controls: detection toggle, interval screenshots, interval seconds, clip include toggle, and clip duration.
+- Adds manual Discord actions in camera view: `Screenshot to Discord` and `Record to Discord` (default 60s, configurable format/duration).
+- Adds richer Discord media generation with `webm`, `webp`, and `gif` format fallback.
+- Rewords settings from generic AI wording to YOLO-focused wording, while retaining legacy alert-rule webhook APIs for compatibility.
 
 ---
 
@@ -226,8 +227,9 @@ Open **http://localhost:8080** in your browser. Add a camera in **Settings → C
 | **Screenshots** | While watching, hover over the video and click to save a PNG. |
 | **YOLOv8 tracking UI** | Configure tracking per camera and run test detections directly in camera view. |
 | **Live overlays + history** | Show bounding boxes on live video and browse grouped detection snapshots/events. |
-| **Discord alerts** | Send rich webhook alerts with snapshot media, mention text, and cooldown per camera. |
-| **Advanced alert rules** | Keep optional rule/webhook APIs for custom external automation flows. |
+| **Discord alerts + triggers** | Send rich webhook alerts with configurable detection/interval triggers, media options, cooldown, and mention per camera. |
+| **Manual Discord media** | Send instant screenshot or clip from camera view with one click. |
+| **Legacy alert-rule API** | Optional compatibility webhooks remain available for external automation flows. |
 | **REST API** | Manage cameras, get stream status, list recordings, and trigger alerts from code or scripts. |
 
 ---
@@ -246,6 +248,7 @@ You can change behaviour with environment variables (no config file needed):
 | `DETECTION_SAMPLE_INTERVAL_SECONDS` | `30` | Global sample interval for camera frame capture. |
 | `DETECTION_WORKERS` | `2` | Concurrent async detection worker requests from backend queue. |
 | `DETECTION_QUEUE_SIZE` | `128` | Max queued snapshots waiting for detector service. |
+| `DISCORD_MOTION_CLIP_SECONDS` | `4` | Default motion-clip length used when camera-specific value is missing. |
 
 **Example (different port and data folder):**
 
@@ -274,6 +277,8 @@ Everything the web UI does can be done over HTTP. Base URL: **http://localhost:8
 | Detection health | `GET` | `/detections/health` |
 | Trigger test frame capture | `POST` | `/cameras/{id}/detections/test-frame` |
 | Trigger test detection | `POST` | `/cameras/{id}/detections/test` |
+| Send screenshot to Discord | `POST` | `/cameras/{id}/discord/screenshot` |
+| Send recording to Discord | `POST` | `/cameras/{id}/discord/record` |
 | List recent detection events | `GET` | `/detection-events` |
 | Get snapshot for event | `GET` | `/detection-events/{id}/snapshot` |
 | Health check | `GET` | `/health` |

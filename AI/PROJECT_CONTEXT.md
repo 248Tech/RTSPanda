@@ -1,144 +1,92 @@
 # RTSPanda — Project Context
 
-## What Is This
+Last updated: 2026-03-14
 
-RTSPanda is a lightning-fast, lightweight, self-hosted RTSP camera viewer.
+## What This Project Is
 
-It is not an NVR. It is not a recording system. It is the fastest path from RTSP stream to browser.
+RTSPanda is a self-hosted RTSP camera platform focused on fast browser viewing plus practical detection/alert workflows.
 
-Target users: homelab enthusiasts, developers, small businesses, security camera hobbyists.
+Current product scope includes:
+
+- Live camera viewing via browser (HLS)
+- Optional continuous recording to disk
+- YOLOv8 frame-sampled detection pipeline
+- Detection overlays and event history
+- Discord webhook alerting with snapshot/clip media
+
+Target users: homelab operators, self-hosters, developers, and small business operators.
 
 ---
 
 ## Core Goals
 
-- View RTSP cameras instantly in a browser
-- Minimal CPU/memory usage
-- Simple self-hosting via Docker
-- No cloud dependencies
-- Clean, fast UI
-- Open source
+- Keep deployment simple (`docker compose up --build -d` works end-to-end)
+- Keep runtime local-first (no required cloud account/services)
+- Provide reliable YOLO detection + alerting without blocking live playback
+- Keep camera config and behavior per-camera, not global-only
+- Preserve low operational overhead for single-node installs
 
 ---
 
-## What It Is NOT (Phase 1)
+## High-Level Architecture
 
-- Not a recording system
-- Not a motion detection system
-- Not a notification system
-- Not a cloud product
+```
+RTSP Cameras
+    ↓
+mediamtx (RTSP relay/transcode to HLS paths)
+    ↓
+Go backend (API, camera config, detection scheduler, notifications)
+    ↓                     ↘
+Browser UI                FastAPI ai-worker (YOLOv8 /detect, /health)
+```
 
-These are future phases. Do not over-engineer Phase 1 toward them. Build clean extension points but do not implement them yet.
+Key behavior:
+
+- Browser does not connect directly to camera RTSP endpoints.
+- Detection is async and queue-based (workers in backend call AI worker).
+- Detection events persist to SQLite with snapshot paths and frame dimensions.
 
 ---
 
 ## Tech Stack
 
-| Layer       | Technology                          |
-|-------------|-------------------------------------|
-| Backend     | Go (stdlib + minimal deps)          |
-| Frontend    | React + Vite + TypeScript           |
-| Database    | SQLite (via `modernc.org/sqlite`)   |
-| Streaming   | mediamtx (stream relay sidecar)     |
-| Player      | hls.js (Phase 1) / WebRTC (Phase 2) |
-| Deployment  | Docker, docker-compose              |
+| Layer | Technology |
+|-------|------------|
+| Backend | Go 1.26 |
+| Frontend | React + Vite + TypeScript |
+| Database | SQLite (`modernc.org/sqlite`) |
+| Streaming | mediamtx |
+| AI Worker | Python FastAPI + Ultralytics YOLOv8 |
+| Media tooling | FFmpeg |
+| Deployment | Docker + docker-compose |
 
 ---
 
-## Streaming Model
+## Current Status (v0.0.3)
 
-```
-RTSP Camera
-    ↓
-mediamtx (relay sidecar — handles RTSP → HLS/WebRTC)
-    ↓
-Go backend (manages mediamtx, serves API + HLS files)
-    ↓
-Browser (hls.js player — never connects directly to camera)
-```
+Shipped and working:
 
-The browser must never connect directly to the RTSP camera. All streams are relayed.
+- Camera CRUD + stream status + recordings
+- Detection sampler + async worker queue
+- YOLO API integration with test detection endpoint
+- Live overlay + detection history UI
+- Discord detection alerts + interval screenshot alerts
+- Manual Discord screenshot/record actions
+- Clip format fallback (`webm`, `webp`, `gif`)
+- Legacy alert-rule APIs preserved for compatibility
 
----
+Not done yet:
 
-## Constraints
-
-- Go backend must be a single binary
-- Frontend must be embedded into the Go binary for production
-- Docker image must be small (target: < 150MB)
-- SQLite only — no Postgres/MySQL for Phase 1
-- mediamtx is allowed as a bundled dependency (it is a single binary)
-- FFmpeg is optional and discouraged unless absolutely necessary
-- No authentication in Phase 1 (LAN-first product; auth is Phase 2)
+- Retention cleanup for snapshots/events
+- Detection history pagination/filtering
+- Discord retry/backoff and failure queue
+- Auth layer
 
 ---
 
-## Coding Standards
+## Operating Constraints
 
-### Go
-- Use standard library where possible
-- Avoid unnecessary abstraction
-- Errors returned, not panicked
-- Flat package structure preferred: `internal/cameras`, `internal/streams`, `internal/db`
-- SQL via raw queries with `database/sql` (no ORM)
-
-### TypeScript / React
-- Functional components only
-- No class components
-- Use `fetch` or a thin wrapper — no Axios
-- Tailwind CSS for styling
-- No Redux — use React context or Zustand if state management needed
-
-### General
-- Do not add features that are not in the current TODO
-- Do not add logging frameworks before core features work
-- Keep dependencies minimal and justified
-
----
-
-## Project Status
-
-**Phase: Initial Setup / Architecture Planning**
-
-Nothing is implemented yet. Planning phase is active.
-
----
-
-## Future Features (Planned, Not Now)
-
-- Discord / Email notifications
-- Snapshot storage
-- Clip export
-- Motion detection
-- AI image interpretation (async only — must never affect live view)
-- Android mobile app
-- Event pipeline
-
----
-
-## Repository Structure (Target)
-
-```
-RTSPanda/
-├── AI/                        ← AI coordination files (this folder)
-├── backend/
-│   ├── cmd/rtspanda/          ← main entrypoint
-│   ├── internal/
-│   │   ├── cameras/           ← camera CRUD + model
-│   │   ├── streams/           ← stream lifecycle manager
-│   │   ├── db/                ← SQLite setup + migrations
-│   │   └── api/               ← HTTP handlers
-│   └── go.mod
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   └── api/               ← typed API client
-│   ├── vite.config.ts
-│   └── package.json
-├── mediamtx/                  ← mediamtx config template
-├── Dockerfile
-├── docker-compose.yml
-├── install.sh
-└── README.md
-```
+- Backend remains a single deployable binary image layer in containerized use.
+- SQLite remains the default and only bundled DB.
+- No auth in current release; deployment assumes trusted LAN/VPN/proxy.
+- Live view must not block on detector/notification failures.

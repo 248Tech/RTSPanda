@@ -12,6 +12,13 @@ export interface Camera {
   discord_webhook_url: string
   discord_mention: string
   discord_cooldown_seconds: number
+  discord_trigger_on_detection: boolean
+  discord_trigger_on_interval: boolean
+  discord_screenshot_interval_seconds: number
+  discord_include_motion_clip: boolean
+  discord_motion_clip_seconds: number
+  discord_record_format: 'webp' | 'webm' | 'gif'
+  discord_record_duration_seconds: number
   position: number
   created_at: string
   updated_at: string
@@ -30,6 +37,13 @@ export interface CreateCameraInput {
   discord_webhook_url?: string
   discord_mention?: string
   discord_cooldown_seconds?: number
+  discord_trigger_on_detection?: boolean
+  discord_trigger_on_interval?: boolean
+  discord_screenshot_interval_seconds?: number
+  discord_include_motion_clip?: boolean
+  discord_motion_clip_seconds?: number
+  discord_record_format?: 'webp' | 'webm' | 'gif'
+  discord_record_duration_seconds?: number
 }
 
 export interface UpdateCameraInput {
@@ -45,6 +59,13 @@ export interface UpdateCameraInput {
   discord_webhook_url?: string
   discord_mention?: string
   discord_cooldown_seconds?: number
+  discord_trigger_on_detection?: boolean
+  discord_trigger_on_interval?: boolean
+  discord_screenshot_interval_seconds?: number
+  discord_include_motion_clip?: boolean
+  discord_motion_clip_seconds?: number
+  discord_record_format?: 'webp' | 'webm' | 'gif'
+  discord_record_duration_seconds?: number
   position?: number
 }
 

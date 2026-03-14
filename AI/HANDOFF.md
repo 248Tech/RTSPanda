@@ -1,88 +1,99 @@
 # RTSPanda — Handoff
 
-## Latest Handoff: 2026-03-13 — YOLOv8 UI + Per-Camera Tracking + Discord Rich Alerts
+## Latest Handoff: 2026-03-14 — v0.0.3 Reliability + Discord Trigger Expansion
 
 ### Summary
 
-Completed the end-to-end AI UX and alerting layer on top of the detection foundation:
+This handoff captures release work for `v0.0.3`:
 
-- Per-camera YOLOv8 tracking settings in camera config
-- Live detection overlays rendered in the camera player UI
-- Detection event/history panel with snapshot previews
-- Per-camera Discord rich-media webhook alerts with cooldown
-- Detection frame dimension persistence for accurate overlay scaling
-
-This turn shipped both backend data/model/pipeline updates and frontend UI integration.
+- Fixed detector reliability failures in Docker deployments.
+- Added verbose YOLO/detector logging for troubleshooting.
+- Expanded per-camera Discord trigger/media controls.
+- Added manual Discord media actions from camera view.
+- Updated user-facing docs to YOLO-first alerting language.
 
 ---
 
-### Files Changed
+### Key Issues Resolved
 
+1. Detection worker failures from FFmpeg option incompatibility:
+- Older FFmpeg builds rejected `-rw_timeout`.
+- Added fallback logic: `rw_timeout` -> `timeout` -> no timeout option.
+
+2. Detector request failures to `ai-worker`:
+- Added detector URL fallback list in backend client.
+- Improved request failure aggregation/logging across fallback URLs.
+
+3. Docker AI worker startup crashes:
+- Added missing runtime libs in AI worker image (`libxcb1`, GL libs, etc.).
+
+4. Multipart detection upload compatibility:
+- Explicit image content type now set on detector multipart form part.
+
+---
+
+### Feature Additions
+
+- New camera config fields (migration `005_discord_triggers.sql`):
+  - `discord_trigger_on_detection`
+  - `discord_trigger_on_interval`
+  - `discord_screenshot_interval_seconds`
+  - `discord_include_motion_clip`
+  - `discord_motion_clip_seconds`
+  - `discord_record_format`
+  - `discord_record_duration_seconds`
+- Manual endpoints:
+  - `POST /api/v1/cameras/{id}/discord/screenshot`
+  - `POST /api/v1/cameras/{id}/discord/record`
+- Camera view buttons:
+  - `Screenshot to Discord`
+  - `Record to Discord`
+- Notifier media generation fallback:
+  - `webm`, `webp`, `gif`
+
+---
+
+### Files Updated In This Release
+
+- `ai_worker/Dockerfile`
 - `ai_worker/app/main.py`
 - `backend/cmd/rtspanda/main.go`
+- `backend/internal/api/detections.go`
+- `backend/internal/api/router.go`
 - `backend/internal/cameras/model.go`
 - `backend/internal/cameras/repository.go`
 - `backend/internal/cameras/service.go`
-- `backend/internal/db/migrations/004_camera_tracking_discord.sql` (new)
-- `backend/internal/detections/model.go`
-- `backend/internal/detections/repository.go`
+- `backend/internal/db/migrations/005_discord_triggers.sql` (new)
+- `backend/internal/detections/capture.go`
+- `backend/internal/detections/client.go`
 - `backend/internal/detections/manager.go`
-- `backend/internal/notifications/discord.go` (new)
+- `backend/internal/notifications/discord.go`
 - `frontend/src/api/cameras.ts`
-- `frontend/src/api/detections.ts` (new)
+- `frontend/src/api/detections.ts`
 - `frontend/src/components/CameraForm.tsx`
-- `frontend/src/components/VideoPlayer.tsx`
 - `frontend/src/pages/CameraView.tsx`
 - `frontend/src/pages/Settings.tsx`
+- `README.md`
+- `human/USER_GUIDE.md`
 
 ---
 
-### What Works
+### Verification Snapshot
 
-- Camera model now supports:
-  - `tracking_enabled`
-  - `tracking_min_confidence`
-  - `tracking_labels`
-  - `discord_alerts_enabled`
-  - `discord_webhook_url`
-  - `discord_mention`
-  - `discord_cooldown_seconds`
-- Detection samplers only run for cameras that are both `enabled` and `tracking_enabled`.
-- Detection filtering now happens per camera:
-  - confidence threshold
-  - optional label allow-list
-- Detection events now persist `frame_width` and `frame_height`.
-- Camera view UI supports:
-  - quick tracking toggle
-  - run-test-detection action
-  - live overlay toggle
-  - event history panel with grouped snapshots
-- Discord notifier sends rich embeds with attached snapshot media and bbox/confidence details.
-- Discord alert cooldown is enforced per camera.
+- Backend compile/tests for changed packages: pass.
+- Frontend build: pass.
+- Docker services healthy together:
+  - `rtspanda` up
+  - `rtspanda-ai-worker` up
+- Manual API verification:
+  - test detection endpoint works
+  - manual Discord screenshot/record endpoint works
 
 ---
 
-### Verification
+### Remaining Risks / Next Work
 
-- `go build ./...` (backend): pass
-- `npm run lint` (frontend): pass
-- `npm run build` (frontend): pass
-- `.\build.ps1` (embed + binary build): pass
-
----
-
-### Known Constraints
-
-- Current pipeline is frame-sampling detection, not persistent multi-object track IDs.
-- Discord sends one message per sampled event batch (subject to cooldown), not per-object rate limiting.
-- No retention/cleanup policy yet for detection snapshots/events.
-- Frontend bundle remains large; Vite chunk warning still present.
-
----
-
-### Recommended Next Steps
-
-1. Add retention policy for `data/snapshots/detections` and old `detection_events`.
-2. Add pagination/date-range filters for detection history API and UI.
-3. Add optional object-level suppression windows (e.g. same label cooldown).
-4. Add integration tests for migration `004` and detection filtering/Discord notify path.
+1. Add retention cleanup for snapshots/events.
+2. Add detection history pagination/filtering.
+3. Add Discord retry/backoff and failed-delivery visibility.
+4. Add integration tests around migration `005` and notifier media modes.

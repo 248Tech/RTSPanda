@@ -1,6 +1,6 @@
 # RTSPanda — TODO
 
-Last updated: 2026-03-13
+Last updated: 2026-03-14
 
 ---
 
@@ -32,6 +32,13 @@ Last updated: 2026-03-13
 - **Description:** Add retry/backoff and failed-delivery visibility for Discord webhook sends.
 - **Purpose:** Reduce silent alert loss on transient network failures.
 - **Dependencies:** TASK-AI-002
+- **Next tool:** Aider
+
+### TASK-AI-008 — Detection startup orchestration hardening
+
+- **Description:** Improve startup sequencing/health checks between `rtspanda` and `ai-worker`.
+- **Purpose:** Reduce transient `connection refused` / DNS lookup failures during container startup.
+- **Dependencies:** TASK-AI-001
 - **Next tool:** Aider
 
 ---
@@ -86,3 +93,12 @@ Last updated: 2026-03-13
 - Live overlay rendering in camera view
 - Detection event/history panel with snapshots
 - Discord rich-media webhook notifications from detection pipeline
+
+### TASK-AI-003A — v0.0.3 reliability + Discord trigger/media expansion ✓
+
+- Detector URL fallback attempts with improved failure logs
+- FFmpeg RTSP timeout compatibility fallback (`rw_timeout` handling)
+- AI worker Docker runtime dependency fixes
+- Verbose detector + YOLO request/result logging
+- New per-camera Discord trigger/media fields + migration `005`
+- Manual camera view actions: screenshot/record to Discord

@@ -14,6 +14,13 @@ export interface CameraFormValues {
   discord_webhook_url: string
   discord_mention: string
   discord_cooldown_seconds: string
+  discord_trigger_on_detection: boolean
+  discord_trigger_on_interval: boolean
+  discord_screenshot_interval_seconds: string
+  discord_include_motion_clip: boolean
+  discord_motion_clip_seconds: string
+  discord_record_format: 'webp' | 'webm' | 'gif'
+  discord_record_duration_seconds: string
 }
 
 export interface CameraFormProps {
@@ -40,6 +47,13 @@ const defaultValues: CameraFormValues = {
   discord_webhook_url: '',
   discord_mention: '',
   discord_cooldown_seconds: '60',
+  discord_trigger_on_detection: true,
+  discord_trigger_on_interval: false,
+  discord_screenshot_interval_seconds: '300',
+  discord_include_motion_clip: true,
+  discord_motion_clip_seconds: '4',
+  discord_record_format: 'webp',
+  discord_record_duration_seconds: '60',
 }
 
 function toValues(camera?: Camera | null): CameraFormValues {
@@ -57,6 +71,13 @@ function toValues(camera?: Camera | null): CameraFormValues {
     discord_webhook_url: camera.discord_webhook_url ?? '',
     discord_mention: camera.discord_mention ?? '',
     discord_cooldown_seconds: String(camera.discord_cooldown_seconds ?? 60),
+    discord_trigger_on_detection: camera.discord_trigger_on_detection ?? true,
+    discord_trigger_on_interval: camera.discord_trigger_on_interval ?? false,
+    discord_screenshot_interval_seconds: String(camera.discord_screenshot_interval_seconds ?? 300),
+    discord_include_motion_clip: camera.discord_include_motion_clip ?? true,
+    discord_motion_clip_seconds: String(camera.discord_motion_clip_seconds ?? 4),
+    discord_record_format: camera.discord_record_format ?? 'webp',
+    discord_record_duration_seconds: String(camera.discord_record_duration_seconds ?? 60),
   }
 }
 
@@ -92,6 +113,21 @@ function validate(values: CameraFormValues): FieldErrors {
     const cooldown = Number(values.discord_cooldown_seconds)
     if (!Number.isInteger(cooldown) || cooldown < 0) {
       errors.discord_cooldown_seconds = 'Cooldown must be a whole number greater than or equal to 0'
+    }
+
+    const screenshotInterval = Number(values.discord_screenshot_interval_seconds)
+    if (!Number.isInteger(screenshotInterval) || screenshotInterval <= 0) {
+      errors.discord_screenshot_interval_seconds = 'Interval must be a whole number greater than 0'
+    }
+
+    const motionClipSeconds = Number(values.discord_motion_clip_seconds)
+    if (!Number.isInteger(motionClipSeconds) || motionClipSeconds <= 0) {
+      errors.discord_motion_clip_seconds = 'Motion clip seconds must be a whole number greater than 0'
+    }
+
+    const recordSeconds = Number(values.discord_record_duration_seconds)
+    if (!Number.isInteger(recordSeconds) || recordSeconds <= 0) {
+      errors.discord_record_duration_seconds = 'Record duration must be a whole number greater than 0'
     }
   }
 
@@ -134,6 +170,9 @@ export function CameraForm({
     const sampleSeconds = Number(values.detection_sample_seconds)
     const trackingConfidence = Number(values.tracking_min_confidence)
     const discordCooldown = Number(values.discord_cooldown_seconds)
+    const discordScreenshotInterval = Number(values.discord_screenshot_interval_seconds)
+    const discordMotionClipSeconds = Number(values.discord_motion_clip_seconds)
+    const discordRecordDurationSeconds = Number(values.discord_record_duration_seconds)
 
     onSubmit({
       name: values.name.trim(),
@@ -151,6 +190,16 @@ export function CameraForm({
       discord_mention: values.discord_mention.trim(),
       discord_cooldown_seconds:
         Number.isInteger(discordCooldown) && discordCooldown >= 0 ? discordCooldown : undefined,
+      discord_trigger_on_detection: values.discord_trigger_on_detection,
+      discord_trigger_on_interval: values.discord_trigger_on_interval,
+      discord_screenshot_interval_seconds:
+        Number.isInteger(discordScreenshotInterval) && discordScreenshotInterval > 0 ? discordScreenshotInterval : undefined,
+      discord_include_motion_clip: values.discord_include_motion_clip,
+      discord_motion_clip_seconds:
+        Number.isInteger(discordMotionClipSeconds) && discordMotionClipSeconds > 0 ? discordMotionClipSeconds : undefined,
+      discord_record_format: values.discord_record_format,
+      discord_record_duration_seconds:
+        Number.isInteger(discordRecordDurationSeconds) && discordRecordDurationSeconds > 0 ? discordRecordDurationSeconds : undefined,
     })
   }
 
@@ -377,6 +426,120 @@ export function CameraForm({
                 {errors.discord_cooldown_seconds}
               </p>
             )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="flex items-center gap-2 text-sm text-text-primary">
+            <input
+              type="checkbox"
+              checked={values.discord_trigger_on_detection}
+              onChange={(e) => setField('discord_trigger_on_detection', e.target.checked)}
+              className="h-4 w-4 rounded border-border bg-base text-accent focus:ring-accent"
+            />
+            Trigger on YOLO detections
+          </label>
+          <label className="flex items-center gap-2 text-sm text-text-primary">
+            <input
+              type="checkbox"
+              checked={values.discord_trigger_on_interval}
+              onChange={(e) => setField('discord_trigger_on_interval', e.target.checked)}
+              className="h-4 w-4 rounded border-border bg-base text-accent focus:ring-accent"
+            />
+            Trigger on interval screenshots
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div>
+            <label htmlFor="discord-screenshot-interval-seconds" className="mb-1 block text-sm text-text-primary">
+              Screenshot interval (seconds)
+            </label>
+            <input
+              id="discord-screenshot-interval-seconds"
+              type="number"
+              min={1}
+              step={1}
+              value={values.discord_screenshot_interval_seconds}
+              onChange={(e) => setField('discord_screenshot_interval_seconds', e.target.value)}
+              onBlur={() => setTouched((prev) => ({ ...prev, discord_screenshot_interval_seconds: true }))}
+              className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              aria-invalid={showError('discord_screenshot_interval_seconds')}
+            />
+            {showError('discord_screenshot_interval_seconds') && (
+              <p className="mt-1 text-sm text-status-offline" role="alert">
+                {errors.discord_screenshot_interval_seconds}
+              </p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="discord-motion-clip-seconds" className="mb-1 block text-sm text-text-primary">
+              Motion clip seconds
+            </label>
+            <input
+              id="discord-motion-clip-seconds"
+              type="number"
+              min={1}
+              step={1}
+              value={values.discord_motion_clip_seconds}
+              onChange={(e) => setField('discord_motion_clip_seconds', e.target.value)}
+              onBlur={() => setTouched((prev) => ({ ...prev, discord_motion_clip_seconds: true }))}
+              className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              aria-invalid={showError('discord_motion_clip_seconds')}
+            />
+            {showError('discord_motion_clip_seconds') && (
+              <p className="mt-1 text-sm text-status-offline" role="alert">
+                {errors.discord_motion_clip_seconds}
+              </p>
+            )}
+          </div>
+          <div>
+            <label htmlFor="discord-record-duration-seconds" className="mb-1 block text-sm text-text-primary">
+              Manual record seconds
+            </label>
+            <input
+              id="discord-record-duration-seconds"
+              type="number"
+              min={1}
+              step={1}
+              value={values.discord_record_duration_seconds}
+              onChange={(e) => setField('discord_record_duration_seconds', e.target.value)}
+              onBlur={() => setTouched((prev) => ({ ...prev, discord_record_duration_seconds: true }))}
+              className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              aria-invalid={showError('discord_record_duration_seconds')}
+            />
+            {showError('discord_record_duration_seconds') && (
+              <p className="mt-1 text-sm text-status-offline" role="alert">
+                {errors.discord_record_duration_seconds}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="flex items-center gap-2 text-sm text-text-primary">
+            <input
+              type="checkbox"
+              checked={values.discord_include_motion_clip}
+              onChange={(e) => setField('discord_include_motion_clip', e.target.checked)}
+              className="h-4 w-4 rounded border-border bg-base text-accent focus:ring-accent"
+            />
+            Include motion clip on detection alerts
+          </label>
+          <div>
+            <label htmlFor="discord-record-format" className="mb-1 block text-sm text-text-primary">
+              Manual record format
+            </label>
+            <select
+              id="discord-record-format"
+              value={values.discord_record_format}
+              onChange={(e) => setField('discord_record_format', e.target.value as 'webp' | 'webm' | 'gif')}
+              className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              <option value="webp">webp</option>
+              <option value="webm">webm</option>
+              <option value="gif">gif</option>
+            </select>
           </div>
         </div>
       </section>

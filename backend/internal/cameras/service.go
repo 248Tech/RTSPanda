@@ -83,6 +83,55 @@ func (s *Service) Create(input CreateInput) (Camera, error) {
 	if discordCooldown < 0 {
 		return Camera{}, fmt.Errorf("%w: discord_cooldown_seconds must be >= 0", ErrInvalid)
 	}
+
+	discordTriggerOnDetection := true
+	if input.DiscordTriggerOnDetection != nil {
+		discordTriggerOnDetection = *input.DiscordTriggerOnDetection
+	}
+
+	discordTriggerOnInterval := false
+	if input.DiscordTriggerOnInterval != nil {
+		discordTriggerOnInterval = *input.DiscordTriggerOnInterval
+	}
+
+	discordScreenshotIntervalSeconds := 300
+	if input.DiscordScreenshotIntervalSeconds != nil {
+		discordScreenshotIntervalSeconds = *input.DiscordScreenshotIntervalSeconds
+	}
+	if discordScreenshotIntervalSeconds <= 0 {
+		return Camera{}, fmt.Errorf("%w: discord_screenshot_interval_seconds must be > 0", ErrInvalid)
+	}
+
+	discordIncludeMotionClip := true
+	if input.DiscordIncludeMotionClip != nil {
+		discordIncludeMotionClip = *input.DiscordIncludeMotionClip
+	}
+
+	discordMotionClipSeconds := 4
+	if input.DiscordMotionClipSeconds != nil {
+		discordMotionClipSeconds = *input.DiscordMotionClipSeconds
+	}
+	if discordMotionClipSeconds <= 0 {
+		return Camera{}, fmt.Errorf("%w: discord_motion_clip_seconds must be > 0", ErrInvalid)
+	}
+
+	discordRecordFormat := "webp"
+	if input.DiscordRecordFormat != nil {
+		discordRecordFormat = strings.TrimSpace(*input.DiscordRecordFormat)
+	}
+	normalizedRecordFormat, err := normalizeDiscordRecordFormat(discordRecordFormat)
+	if err != nil {
+		return Camera{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+
+	discordRecordDurationSeconds := 60
+	if input.DiscordRecordDurationSeconds != nil {
+		discordRecordDurationSeconds = *input.DiscordRecordDurationSeconds
+	}
+	if discordRecordDurationSeconds <= 0 {
+		return Camera{}, fmt.Errorf("%w: discord_record_duration_seconds must be > 0", ErrInvalid)
+	}
+
 	if discordAlertsEnabled && discordWebhookURL == "" {
 		return Camera{}, fmt.Errorf("%w: discord_webhook_url is required when discord alerts are enabled", ErrInvalid)
 	}
@@ -94,22 +143,29 @@ func (s *Service) Create(input CreateInput) (Camera, error) {
 
 	now := time.Now()
 	c := Camera{
-		ID:                     uuid.New().String(),
-		Name:                   input.Name,
-		RTSPURL:                input.RTSPURL,
-		Enabled:                enabled,
-		RecordEnabled:          recordEnabled,
-		DetectionSampleSeconds: input.DetectionSampleSeconds,
-		TrackingEnabled:        trackingEnabled,
-		TrackingMinConfidence:  trackingMinConfidence,
-		TrackingLabels:         trackingLabels,
-		DiscordAlertsEnabled:   discordAlertsEnabled,
-		DiscordWebhookURL:      discordWebhookURL,
-		DiscordMention:         discordMention,
-		DiscordCooldownSeconds: discordCooldown,
-		Position:               0,
-		CreatedAt:              now,
-		UpdatedAt:              now,
+		ID:                               uuid.New().String(),
+		Name:                             input.Name,
+		RTSPURL:                          input.RTSPURL,
+		Enabled:                          enabled,
+		RecordEnabled:                    recordEnabled,
+		DetectionSampleSeconds:           input.DetectionSampleSeconds,
+		TrackingEnabled:                  trackingEnabled,
+		TrackingMinConfidence:            trackingMinConfidence,
+		TrackingLabels:                   trackingLabels,
+		DiscordAlertsEnabled:             discordAlertsEnabled,
+		DiscordWebhookURL:                discordWebhookURL,
+		DiscordMention:                   discordMention,
+		DiscordCooldownSeconds:           discordCooldown,
+		DiscordTriggerOnDetection:        discordTriggerOnDetection,
+		DiscordTriggerOnInterval:         discordTriggerOnInterval,
+		DiscordScreenshotIntervalSeconds: discordScreenshotIntervalSeconds,
+		DiscordIncludeMotionClip:         discordIncludeMotionClip,
+		DiscordMotionClipSeconds:         discordMotionClipSeconds,
+		DiscordRecordFormat:              normalizedRecordFormat,
+		DiscordRecordDurationSeconds:     discordRecordDurationSeconds,
+		Position:                         0,
+		CreatedAt:                        now,
+		UpdatedAt:                        now,
 	}
 	if err := s.repo.Create(c); err != nil {
 		return Camera{}, fmt.Errorf("create camera: %w", err)
@@ -183,6 +239,40 @@ func (s *Service) Update(id string, input UpdateInput) (Camera, error) {
 		}
 		c.DiscordCooldownSeconds = *input.DiscordCooldownSeconds
 	}
+	if input.DiscordTriggerOnDetection != nil {
+		c.DiscordTriggerOnDetection = *input.DiscordTriggerOnDetection
+	}
+	if input.DiscordTriggerOnInterval != nil {
+		c.DiscordTriggerOnInterval = *input.DiscordTriggerOnInterval
+	}
+	if input.DiscordScreenshotIntervalSeconds != nil {
+		if *input.DiscordScreenshotIntervalSeconds <= 0 {
+			return Camera{}, fmt.Errorf("%w: discord_screenshot_interval_seconds must be > 0", ErrInvalid)
+		}
+		c.DiscordScreenshotIntervalSeconds = *input.DiscordScreenshotIntervalSeconds
+	}
+	if input.DiscordIncludeMotionClip != nil {
+		c.DiscordIncludeMotionClip = *input.DiscordIncludeMotionClip
+	}
+	if input.DiscordMotionClipSeconds != nil {
+		if *input.DiscordMotionClipSeconds <= 0 {
+			return Camera{}, fmt.Errorf("%w: discord_motion_clip_seconds must be > 0", ErrInvalid)
+		}
+		c.DiscordMotionClipSeconds = *input.DiscordMotionClipSeconds
+	}
+	if input.DiscordRecordFormat != nil {
+		normalized, err := normalizeDiscordRecordFormat(*input.DiscordRecordFormat)
+		if err != nil {
+			return Camera{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		c.DiscordRecordFormat = normalized
+	}
+	if input.DiscordRecordDurationSeconds != nil {
+		if *input.DiscordRecordDurationSeconds <= 0 {
+			return Camera{}, fmt.Errorf("%w: discord_record_duration_seconds must be > 0", ErrInvalid)
+		}
+		c.DiscordRecordDurationSeconds = *input.DiscordRecordDurationSeconds
+	}
 
 	if c.DiscordAlertsEnabled && strings.TrimSpace(c.DiscordWebhookURL) == "" {
 		return Camera{}, fmt.Errorf("%w: discord_webhook_url is required when discord alerts are enabled", ErrInvalid)
@@ -224,6 +314,19 @@ func normalizeTrackingLabels(labels []string) []string {
 		out = append(out, label)
 	}
 	return out
+}
+
+func normalizeDiscordRecordFormat(raw string) (string, error) {
+	format := strings.ToLower(strings.TrimSpace(raw))
+	if format == "" {
+		format = "webp"
+	}
+	switch format {
+	case "webp", "webm", "gif":
+		return format, nil
+	default:
+		return "", fmt.Errorf("discord_record_format must be webp, webm, or gif")
+	}
 }
 
 func validateWebhookURL(raw string) error {

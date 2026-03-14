@@ -1,9 +1,13 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/rtspanda/rtspanda/internal/cameras"
 	"github.com/rtspanda/rtspanda/internal/detections"
@@ -18,6 +22,11 @@ type DetectionService interface {
 	ListEvents(limit int, cameraID string) ([]detections.Event, error)
 	SnapshotPath(eventID string) (string, error)
 	Health() detections.Health
+}
+
+type DiscordNotificationService interface {
+	SendCameraSnapshot(ctx context.Context, camera cameras.Camera, snapshot detections.Snapshot, includeMotionClip bool) error
+	SendCameraRecording(ctx context.Context, camera cameras.Camera, durationSeconds int, format string) error
 }
 
 // handleDetectionHealth: GET /api/v1/detections/health
@@ -127,6 +136,112 @@ func (s *server) handleGetDetectionSnapshot(w http.ResponseWriter, r *http.Reque
 	}
 
 	http.ServeFile(w, r, path)
+}
+
+type sendDiscordScreenshotRequest struct {
+	IncludeMotion bool `json:"include_motion"`
+}
+
+type sendDiscordRecordingRequest struct {
+	DurationSeconds *int   `json:"duration_seconds"`
+	Format          string `json:"format"`
+}
+
+// handleSendDiscordScreenshot: POST /api/v1/cameras/{id}/discord/screenshot
+func (s *server) handleSendDiscordScreenshot(w http.ResponseWriter, r *http.Request) {
+	if s.detections == nil {
+		writeError(w, http.StatusServiceUnavailable, "detection service unavailable")
+		return
+	}
+	if s.notifier == nil {
+		writeError(w, http.StatusServiceUnavailable, "discord notifier unavailable")
+		return
+	}
+
+	camera, ok := s.getCameraByPathID(w, r)
+	if !ok {
+		return
+	}
+
+	includeMotion := false
+	if r.Body != nil {
+		var req sendDiscordScreenshotRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		includeMotion = req.IncludeMotion
+	}
+
+	snapshot, err := s.detections.CaptureTestFrame(camera)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	if err := s.notifier.SendCameraSnapshot(ctx, camera, snapshot, includeMotion); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":         "sent",
+		"camera_id":      camera.ID,
+		"snapshot_path":  snapshot.Path,
+		"include_motion": includeMotion,
+	})
+}
+
+// handleSendDiscordRecording: POST /api/v1/cameras/{id}/discord/record
+func (s *server) handleSendDiscordRecording(w http.ResponseWriter, r *http.Request) {
+	if s.notifier == nil {
+		writeError(w, http.StatusServiceUnavailable, "discord notifier unavailable")
+		return
+	}
+
+	camera, ok := s.getCameraByPathID(w, r)
+	if !ok {
+		return
+	}
+
+	durationSeconds := camera.DiscordRecordDurationSeconds
+	format := camera.DiscordRecordFormat
+	if r.Body != nil {
+		var req sendDiscordRecordingRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		if req.DurationSeconds != nil {
+			durationSeconds = *req.DurationSeconds
+		}
+		if req.Format != "" {
+			format = req.Format
+		}
+	}
+
+	if durationSeconds <= 0 {
+		writeError(w, http.StatusBadRequest, "duration_seconds must be > 0")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(durationSeconds+45)*time.Second)
+	defer cancel()
+
+	if err := s.notifier.SendCameraRecording(ctx, camera, durationSeconds, format); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":           "sent",
+		"camera_id":        camera.ID,
+		"duration_seconds": durationSeconds,
+		"format":           format,
+	})
 }
 
 func (s *server) getCameraByPathID(w http.ResponseWriter, r *http.Request) (cameras.Camera, bool) {

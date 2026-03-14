@@ -28,6 +28,10 @@ type AlertNotifier interface {
 	NotifyDetectionEvents(ctx context.Context, camera cameras.Camera, snapshot Snapshot, events []Event) error
 }
 
+type SnapshotNotifier interface {
+	SendCameraSnapshot(ctx context.Context, camera cameras.Camera, snapshot Snapshot, includeMotionClip bool) error
+}
+
 type Manager struct {
 	repo           *Repository
 	client         *Client
@@ -71,7 +75,7 @@ func NewManager(dataDir string, repo *Repository, cfg Config) *Manager {
 		log.Printf("detections: WARNING - ffmpeg binary %q not found; scheduled sampling is disabled", cfg.FFmpegBin)
 	}
 
-	return &Manager{
+	manager := &Manager{
 		repo:           repo,
 		client:         NewClient(cfg.DetectorURL, 30*time.Second),
 		ffmpegBin:      ffmpegBin,
@@ -83,6 +87,8 @@ func NewManager(dataDir string, repo *Repository, cfg Config) *Manager {
 		notifier:       cfg.Notifier,
 		cancels:        make(map[string]context.CancelFunc),
 	}
+	log.Printf("detections: detector urls=%s", strings.Join(manager.client.BaseURLs(), ", "))
+	return manager
 }
 
 func (m *Manager) Start(ctx context.Context, cameraList []cameras.Camera) error {
@@ -226,6 +232,7 @@ func (m *Manager) startSamplerLocked(camera cameras.Camera) {
 	go func(c cameras.Camera, sampleInterval time.Duration) {
 		ticker := time.NewTicker(sampleInterval)
 		defer ticker.Stop()
+		var lastIntervalDiscordSent time.Time
 
 		for {
 			select {
@@ -239,6 +246,7 @@ func (m *Manager) startSamplerLocked(camera cameras.Camera) {
 					continue
 				}
 				log.Printf("detections: frame capture success camera=%s snapshot=%s", c.ID, snap.Path)
+				m.maybeSendIntervalDiscordNotification(c, snap, &lastIntervalDiscordSent)
 
 				job := detectJob{camera: c, snapshot: snap}
 				select {
@@ -280,13 +288,14 @@ func (m *Manager) workerLoop(ctx context.Context, workerID int) {
 }
 
 func (m *Manager) handleJob(workerID int, job detectJob) {
+	log.Printf("detections: detector request start worker=%d camera=%s snapshot=%s detector=%s", workerID, job.camera.ID, job.snapshot.Path, m.client.BaseURL())
 	response, raw, err := m.client.DetectFile(job.camera.ID, job.snapshot.Timestamp, job.snapshot.Path)
 	if err != nil {
 		log.Printf("detections: detector request failed worker=%d camera=%s err=%v raw=%s", workerID, job.camera.ID, err, raw)
 		_ = os.Remove(job.snapshot.Path)
 		return
 	}
-	log.Printf("detections: detector request success worker=%d camera=%s detections=%d", workerID, job.camera.ID, len(response.Detections))
+	log.Printf("detections: detector request success worker=%d camera=%s detections=%d labels=%s", workerID, job.camera.ID, len(response.Detections), summarizeDetectionLabels(response.Detections))
 
 	if len(response.Detections) == 0 {
 		_ = os.Remove(job.snapshot.Path)
@@ -321,6 +330,58 @@ func (m *Manager) handleJob(workerID int, job detectJob) {
 			log.Printf("detections: notifier failed worker=%d camera=%s err=%v", workerID, job.camera.ID, err)
 		}
 	}
+}
+
+func (m *Manager) maybeSendIntervalDiscordNotification(camera cameras.Camera, snapshot Snapshot, lastSent *time.Time) {
+	if m.notifier == nil || !camera.DiscordAlertsEnabled || !camera.DiscordTriggerOnInterval {
+		return
+	}
+
+	notifier, ok := m.notifier.(SnapshotNotifier)
+	if !ok {
+		return
+	}
+
+	intervalSeconds := camera.DiscordScreenshotIntervalSeconds
+	if intervalSeconds <= 0 {
+		intervalSeconds = 300
+	}
+	interval := time.Duration(intervalSeconds) * time.Second
+
+	now := time.Now()
+	if !lastSent.IsZero() && now.Sub(*lastSent) < interval {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	if err := notifier.SendCameraSnapshot(ctx, camera, snapshot, camera.DiscordIncludeMotionClip); err != nil {
+		log.Printf("detections: interval discord alert failed camera=%s err=%v", camera.ID, err)
+		return
+	}
+
+	*lastSent = now
+	log.Printf("detections: interval discord alert sent camera=%s interval=%s snapshot=%s", camera.ID, interval, snapshot.Path)
+}
+
+func summarizeDetectionLabels(detections []Detection) string {
+	if len(detections) == 0 {
+		return "none"
+	}
+	max := len(detections)
+	if max > 5 {
+		max = 5
+	}
+	parts := make([]string, 0, max)
+	for i := 0; i < max; i++ {
+		d := detections[i]
+		parts = append(parts, fmt.Sprintf("%s(%.0f%%)", d.Label, d.Confidence*100))
+	}
+	if len(detections) > max {
+		parts = append(parts, "...")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func resolveFFmpeg(configured string) (string, bool) {

@@ -42,6 +42,20 @@ export interface TriggerDetectionResponse {
   snapshot_path?: string
 }
 
+export interface DiscordScreenshotResponse {
+  status: string
+  camera_id: string
+  snapshot_path: string
+  include_motion: boolean
+}
+
+export interface DiscordRecordResponse {
+  status: string
+  camera_id: string
+  duration_seconds: number
+  format: string
+}
+
 export async function getDetectionHealth(): Promise<DetectionHealth> {
   const res = await fetch(`${BASE}/detections/health`)
   if (!res.ok) throw new Error(`getDetectionHealth: ${res.status}`)
@@ -69,7 +83,67 @@ export async function triggerTestDetection(
   const res = await fetch(`${BASE}/cameras/${cameraId}/detections/test`, {
     method: 'POST',
   })
-  if (!res.ok) throw new Error(`triggerTestDetection: ${res.status}`)
+  if (!res.ok) {
+    let message = `triggerTestDetection: ${res.status}`
+    try {
+      const payload = await res.json() as { error?: string }
+      if (payload.error) {
+        message = payload.error
+      }
+    } catch {
+      // Ignore parse errors and keep status-based fallback.
+    }
+    throw new Error(message)
+  }
+  return res.json()
+}
+
+export async function sendDiscordScreenshot(
+  cameraId: string,
+  includeMotion = false
+): Promise<DiscordScreenshotResponse> {
+  const res = await fetch(`${BASE}/cameras/${cameraId}/discord/screenshot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ include_motion: includeMotion }),
+  })
+  if (!res.ok) {
+    let message = `sendDiscordScreenshot: ${res.status}`
+    try {
+      const payload = await res.json() as { error?: string }
+      if (payload.error) {
+        message = payload.error
+      }
+    } catch {
+      // Ignore parse errors and keep status-based fallback.
+    }
+    throw new Error(message)
+  }
+  return res.json()
+}
+
+export async function sendDiscordRecording(
+  cameraId: string,
+  durationSeconds = 60,
+  format = 'webp'
+): Promise<DiscordRecordResponse> {
+  const res = await fetch(`${BASE}/cameras/${cameraId}/discord/record`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ duration_seconds: durationSeconds, format }),
+  })
+  if (!res.ok) {
+    let message = `sendDiscordRecording: ${res.status}`
+    try {
+      const payload = await res.json() as { error?: string }
+      if (payload.error) {
+        message = payload.error
+      }
+    } catch {
+      // Ignore parse errors and keep status-based fallback.
+    }
+    throw new Error(message)
+  }
   return res.json()
 }
 

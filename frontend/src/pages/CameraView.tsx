@@ -8,6 +8,8 @@ import {
 import {
   detectionSnapshotUrl,
   listDetectionEvents,
+  sendDiscordRecording,
+  sendDiscordScreenshot,
   triggerTestDetection,
   type DetectionEvent,
 } from '../api/detections'
@@ -71,6 +73,8 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
   const [overlayEnabled, setOverlayEnabled] = useState(true)
   const [trackingBusy, setTrackingBusy] = useState(false)
   const [testingDetection, setTestingDetection] = useState(false)
+  const [sendingDiscordScreenshot, setSendingDiscordScreenshot] = useState(false)
+  const [sendingDiscordRecording, setSendingDiscordRecording] = useState(false)
   const [testMessage, setTestMessage] = useState<string | null>(null)
   const [detectionEvents, setDetectionEvents] = useState<DetectionEvent[]>([])
   const [detectionError, setDetectionError] = useState<string | null>(null)
@@ -199,6 +203,36 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
     }
   }, [camera, fetchDetectionEvents, testingDetection])
 
+  const handleSendDiscordScreenshot = useCallback(async () => {
+    if (!camera || sendingDiscordScreenshot) return
+    setSendingDiscordScreenshot(true)
+    setTestMessage(null)
+    try {
+      await sendDiscordScreenshot(camera.id, false)
+      setTestMessage('Screenshot sent to Discord webhook.')
+    } catch (e) {
+      setTestMessage(e instanceof Error ? e.message : 'Failed to send screenshot to Discord')
+    } finally {
+      setSendingDiscordScreenshot(false)
+    }
+  }, [camera, sendingDiscordScreenshot])
+
+  const handleSendDiscordRecording = useCallback(async () => {
+    if (!camera || sendingDiscordRecording) return
+    setSendingDiscordRecording(true)
+    setTestMessage(null)
+    try {
+      const durationSeconds = camera.discord_record_duration_seconds ?? 60
+      const format = camera.discord_record_format ?? 'webp'
+      await sendDiscordRecording(camera.id, durationSeconds, format)
+      setTestMessage(`Recording sent to Discord (${durationSeconds}s ${format}).`)
+    } catch (e) {
+      setTestMessage(e instanceof Error ? e.message : 'Failed to send recording to Discord')
+    } finally {
+      setSendingDiscordRecording(false)
+    }
+  }, [camera, sendingDiscordRecording])
+
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -279,6 +313,32 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
             className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-60"
           >
             {testingDetection ? 'Testing...' : 'Run Test Detection'}
+          </button>
+          <button
+            type="button"
+            onClick={handleSendDiscordScreenshot}
+            disabled={sendingDiscordScreenshot || camera.discord_webhook_url.trim() === ''}
+            className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-card-hover focus:outline-none focus:ring-2 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+            title={
+              camera.discord_webhook_url.trim() === ''
+                ? 'Configure camera Discord webhook first'
+                : 'Capture and send a screenshot to Discord'
+            }
+          >
+            {sendingDiscordScreenshot ? 'Sending Screenshot...' : 'Screenshot to Discord'}
+          </button>
+          <button
+            type="button"
+            onClick={handleSendDiscordRecording}
+            disabled={sendingDiscordRecording || camera.discord_webhook_url.trim() === ''}
+            className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-card-hover focus:outline-none focus:ring-2 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
+            title={
+              camera.discord_webhook_url.trim() === ''
+                ? 'Configure camera Discord webhook first'
+                : 'Record and send a clip to Discord'
+            }
+          >
+            {sendingDiscordRecording ? 'Recording...' : 'Record to Discord'}
           </button>
           <button
             type="button"

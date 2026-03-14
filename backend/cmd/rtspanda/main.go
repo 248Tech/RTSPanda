@@ -54,7 +54,11 @@ func main() {
 
 	// Detection event repository
 	detectionRepo := detections.NewRepository(database.DB)
-	discordNotifier := notifications.NewDiscordNotifier(15 * time.Second)
+	ffmpegBin := envOrDefault("FFMPEG_BIN", "ffmpeg")
+	discordNotifier := notifications.NewDiscordNotifier(15*time.Second, notifications.DiscordNotifierConfig{
+		FFmpegBin:          ffmpegBin,
+		MotionClipDuration: time.Duration(envIntOrDefault("DISCORD_MOTION_CLIP_SECONDS", 4)) * time.Second,
+	})
 
 	// Log buffer for Settings → Logs page (tee log output)
 	logBuf := logs.NewBuffer(1000)
@@ -77,7 +81,7 @@ func main() {
 
 	// Async object detection manager (gracefully degraded if ffmpeg/detector unavailable).
 	detectionMgr := detections.NewManager(dataDir, detectionRepo, detections.Config{
-		FFmpegBin:             envOrDefault("FFMPEG_BIN", "ffmpeg"),
+		FFmpegBin:             ffmpegBin,
 		DetectorURL:           envOrDefault("DETECTOR_URL", "http://127.0.0.1:8090"),
 		DefaultSampleInterval: time.Duration(envIntOrDefault("DETECTION_SAMPLE_INTERVAL_SECONDS", 30)) * time.Second,
 		QueueSize:             envIntOrDefault("DETECTION_QUEUE_SIZE", 128),
@@ -89,7 +93,7 @@ func main() {
 	}
 
 	// HTTP server
-	router := api.NewRouter(cameraSvc, streamMgr, detectionMgr, alertSvc, recordingSvc, logBuf)
+	router := api.NewRouter(cameraSvc, streamMgr, detectionMgr, discordNotifier, alertSvc, recordingSvc, logBuf)
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),
 		Handler:      router,

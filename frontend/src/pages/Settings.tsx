@@ -27,13 +27,13 @@ type AlertModalMode = 'add' | 'edit' | 'delete' | null
 const ALERT_TYPE_LABELS: Record<AlertType, string> = {
   motion: 'Motion Detection',
   connectivity: 'Connectivity',
-  object_detection: 'Object Detection (AI)',
+  object_detection: 'Object Detection (YOLO)',
 }
 
 const ALERT_TYPE_DESCRIPTIONS: Record<AlertType, string> = {
   motion: 'Fires when movement is detected in the frame',
   connectivity: 'Fires when the camera goes offline or reconnects',
-  object_detection: 'Fires when a specific object is detected (requires AI model)',
+  object_detection: 'Fires when a specific YOLO object is detected',
 }
 
 // ─── Alert Rule Form ───────────────────────────────────────────────────────────
@@ -262,18 +262,17 @@ function AlertsPanel({ cameras }: { cameras: Camera[] }) {
         </div>
       </div>
 
-      {/* Callout: AI integration note */}
+      {/* Callout: legacy compatibility note */}
       <div className="flex gap-3 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3 text-sm">
         <svg className="mt-0.5 h-4 w-4 shrink-0 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <div className="text-text-muted">
-          <span className="font-medium text-text-primary">AI integration ready.</span>{' '}
-          External systems can trigger alert events via{' '}
+          <span className="font-medium text-text-primary">Legacy alert rules.</span>{' '}
+          Primary alerting is now YOLO + Discord in camera settings. This endpoint remains for compatibility:{' '}
           <code className="rounded bg-card px-1 font-mono text-xs text-accent">
             POST /api/v1/alerts/&#123;id&#125;/events
           </code>
-          . Object detection requires a compatible model pointed at the HLS feed.
         </div>
       </div>
 
@@ -510,6 +509,13 @@ export default function Settings() {
             discord_webhook_url: values.discord_webhook_url,
             discord_mention: values.discord_mention,
             discord_cooldown_seconds: values.discord_cooldown_seconds,
+            discord_trigger_on_detection: values.discord_trigger_on_detection,
+            discord_trigger_on_interval: values.discord_trigger_on_interval,
+            discord_screenshot_interval_seconds: values.discord_screenshot_interval_seconds,
+            discord_include_motion_clip: values.discord_include_motion_clip,
+            discord_motion_clip_seconds: values.discord_motion_clip_seconds,
+            discord_record_format: values.discord_record_format,
+            discord_record_duration_seconds: values.discord_record_duration_seconds,
           })
           setCameras((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
         } else {
@@ -572,7 +578,7 @@ export default function Settings() {
                   : 'text-text-muted hover:bg-card-hover hover:text-text-primary'
               }`}
             >
-              {t === 'alerts' ? 'AI Alerts' : t === 'logs' ? 'Logs' : 'Cameras'}
+              {t === 'alerts' ? 'YOLO Alerts' : t === 'logs' ? 'Logs' : 'Cameras'}
             </button>
           ))}
         </nav>
@@ -651,7 +657,7 @@ export default function Settings() {
         </>
       )}
 
-      {/* AI Alerts tab */}
+      {/* YOLO Alerts tab */}
       {tab === 'alerts' && <AlertsPanel cameras={cameras} />}
 
       {/* Logs tab */}

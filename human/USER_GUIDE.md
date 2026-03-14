@@ -24,12 +24,13 @@
    - [Enabling recording](#enabling-recording)
    - [Browsing and downloading recordings](#browsing-and-downloading-recordings)
    - [Deleting recordings](#deleting-recordings)
-9. [AI Tracking and Alerts](#9-ai-tracking-and-alerts)
+9. [YOLO Tracking and Discord Alerts](#9-yolo-tracking-and-discord-alerts)
    - [YOLOv8 tracking per camera](#yolov8-tracking-per-camera)
    - [Live overlays in camera view](#live-overlays-in-camera-view)
    - [Detection event history panel](#detection-event-history-panel)
    - [Discord rich media alerts](#discord-rich-media-alerts)
-   - [Optional alert rules and webhooks (advanced)](#optional-alert-rules-and-webhooks-advanced)
+   - [Manual Discord actions in camera view](#manual-discord-actions-in-camera-view)
+   - [Legacy alert rules and webhooks (advanced)](#legacy-alert-rules-and-webhooks-advanced)
 10. [Managing cameras](#10-managing-cameras)
 11. [Finding your RTSP URL](#11-finding-your-rtsp-url)
 12. [Testing without a real camera](#12-testing-without-a-real-camera)
@@ -57,13 +58,13 @@ It ships as a **single file** that contains the entire web server and user inter
 - Runs YOLOv8 detection per camera with configurable thresholds and label filters
 - Draws live bounding-box overlays on video playback
 - Stores detection history with snapshot previews
-- Sends rich Discord webhook alerts with snapshot attachments (optional)
+- Sends rich Discord webhook alerts with snapshot/clip media and manual push actions (optional)
 
 **What it is not:**
 
 - Not a cloud product — everything stays on your machine
 - Not a full NVR — it is lightweight by design
-- Not a motion detector itself — it provides the groundwork for one to plug in
+- Not a full enterprise VMS/NVR platform
 
 ---
 
@@ -115,8 +116,8 @@ Your RTSP camera
 ### Step 1 — Get the code
 
 ```bash
-git clone https://github.com/your-org/rtspanda
-cd rtspanda
+git clone https://github.com/248Tech/RTSPanda.git
+cd RTSPanda
 ```
 
 ### Step 2 — Get the mediamtx binary
@@ -308,7 +309,7 @@ In the Recordings panel, click the **trash icon** next to any recording. You wil
 
 ---
 
-## 9. AI Tracking and Alerts
+## 9. YOLO Tracking and Discord Alerts
 
 ### YOLOv8 tracking per camera
 
@@ -351,17 +352,35 @@ Fields:
 - **Webhook URL** (required when enabled)
 - **Mention** (optional, e.g. `@here` or `<@123...>`)
 - **Cooldown (seconds)** to avoid spam
+- **Trigger on YOLO detections**
+- **Trigger on interval screenshots**
+- **Screenshot interval (seconds)** for interval trigger mode
+- **Include motion clip on detection alerts**
+- **Motion clip seconds**
+- **Manual record format** (`webp`, `webm`, or `gif`)
+- **Manual record seconds**
 
 When active, detection batches send a Discord embed with:
 
 - Camera name and detection summary
 - Confidence and bbox details
 - Attached snapshot image (rich media)
+- Optional clip attachment with format fallback (`webm` -> `webp` -> `gif`)
 
-### Optional alert rules and webhooks (advanced)
+### Manual Discord actions in camera view
 
-The original **AI Alerts** tab is still available for advanced workflows where external systems trigger custom events via API.
-If you already have your own detector stack, you can keep using:
+In single-camera view, you can trigger media pushes without waiting for a detection:
+
+- **Screenshot to Discord**: captures one frame and sends it to the configured webhook.
+- **Record to Discord**: records and sends a clip using the camera's configured format and duration.
+
+Both buttons require the camera-level Discord webhook URL to be configured.
+
+### Legacy alert rules and webhooks (advanced)
+
+The **YOLO Alerts** tab keeps legacy alert-rule APIs for compatibility with external systems.
+Primary alerting should now be configured in camera-level YOLO + Discord settings.
+If you already have an external workflow, you can keep using:
 
 - `POST /api/v1/alerts/{id}/events`
 
@@ -381,7 +400,7 @@ Click **Edit** on any camera row. You can change:
 - Enabled / disabled state
 - Record to disk on/off
 - YOLOv8 tracking settings (toggle, interval, threshold, labels)
-- Discord alert settings (toggle, webhook, mention, cooldown)
+- Discord alert settings (webhook, mention, cooldown, trigger mode, interval screenshots, clip include/duration, record format/duration)
 
 Changes take effect immediately. If you change the RTSP URL, mediamtx reconnects to the new address.
 
@@ -505,6 +524,7 @@ Set these before running the binary to customise behaviour. No config file is ne
 | `DETECTION_SAMPLE_INTERVAL_SECONDS` | `30` | Global detection sample interval fallback |
 | `DETECTION_WORKERS` | `2` | Detection worker concurrency |
 | `DETECTION_QUEUE_SIZE` | `128` | In-memory detection queue capacity |
+| `DISCORD_MOTION_CLIP_SECONDS` | `4` | Default clip seconds used when camera-level clip duration is unset |
 | `YOLO_MODEL` | `yolov8n.pt` | AI worker model (worker container/env) |
 | `YOLO_CONFIDENCE` | `0.25` | AI worker baseline confidence (before per-camera filtering) |
 
@@ -652,13 +672,30 @@ Fix: make sure the mediamtx binary is at `mediamtx/mediamtx` (or `mediamtx/media
 - Verify `ffmpeg` is installed and reachable (`FFMPEG_BIN`)
 - If using Docker Compose, ensure both `rtspanda` and `ai-worker` containers are up
 
+### Detector request errors (`connection refused` / `no such host`)
+
+If logs show errors like:
+
+- `Post "http://ai-worker:8090/detect": connect: connection refused`
+- `lookup ai-worker ... no such host`
+
+check container health and networking first:
+
+- `docker ps` and confirm both `rtspanda` and `rtspanda-ai-worker` are running
+- `docker logs rtspanda-ai-worker` for Python startup/runtime errors
+- `docker compose up --build -d` after dependency or Dockerfile changes
+
+RTSPanda now supports detector URL fallback internally, but a stopped or crashing worker will still fail requests.
+
 ### Discord alerts are not arriving
 
 - Verify camera-level **Discord Rich Alerts** is enabled
 - Confirm webhook URL is valid and starts with `https://`
+- Verify trigger mode: **Trigger on YOLO detections** and/or **Trigger on interval screenshots**
 - Set cooldown to a lower number while testing
 - Use **Run Test Detection** on a scene that reliably triggers detections
 - Inspect server logs for webhook delivery errors
+- Try **Screenshot to Discord** from camera view to validate webhook delivery independently of detection
 
 ### Build fails
 
@@ -668,7 +705,7 @@ Fix: make sure the mediamtx binary is at `mediamtx/mediamtx` (or `mediamtx/media
 - Check for TypeScript errors in the output
 
 **`go build` fails:**
-- Make sure Go 1.22+ is installed: `go version`
+- Make sure Go 1.26+ is installed: `go version`
 - Run `go mod tidy` in the `backend/` directory
 - Check the error message — it will point to the file and line
 
@@ -734,7 +771,14 @@ GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
   "discord_alerts_enabled": true,
   "discord_webhook_url": "https://discord.com/api/webhooks/...",
   "discord_mention": "@here",
-  "discord_cooldown_seconds": 90
+  "discord_cooldown_seconds": 90,
+  "discord_trigger_on_detection": true,
+  "discord_trigger_on_interval": false,
+  "discord_screenshot_interval_seconds": 300,
+  "discord_include_motion_clip": true,
+  "discord_motion_clip_seconds": 4,
+  "discord_record_format": "webp",
+  "discord_record_duration_seconds": 60
 }
 ```
 
@@ -754,6 +798,13 @@ GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
   "discord_webhook_url": "https://discord.com/api/webhooks/...",
   "discord_mention": "@here",
   "discord_cooldown_seconds": 90,
+  "discord_trigger_on_detection": true,
+  "discord_trigger_on_interval": false,
+  "discord_screenshot_interval_seconds": 300,
+  "discord_include_motion_clip": true,
+  "discord_motion_clip_seconds": 4,
+  "discord_record_format": "webp",
+  "discord_record_duration_seconds": 60,
   "position": 0,
   "created_at": "2025-01-01T00:00:00Z",
   "updated_at": "2025-01-01T00:00:00Z"
@@ -774,6 +825,8 @@ GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
 GET    /api/v1/detections/health
 POST   /api/v1/cameras/{id}/detections/test-frame
 POST   /api/v1/cameras/{id}/detections/test
+POST   /api/v1/cameras/{id}/discord/screenshot
+POST   /api/v1/cameras/{id}/discord/record
 GET    /api/v1/detection-events?limit=100&camera_id={id}
 GET    /api/v1/detection-events/{id}/snapshot
 ```
@@ -813,7 +866,7 @@ DELETE /api/v1/cameras/{id}/recordings/{filename}        # delete file
 ]
 ```
 
-### Alert rules
+### Legacy alert rules
 
 ```http
 GET    /api/v1/cameras/{id}/alerts          # list rules for camera

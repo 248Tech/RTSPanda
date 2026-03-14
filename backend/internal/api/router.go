@@ -31,13 +31,14 @@ type server struct {
 	cameras      CameraService
 	streams      StreamManager
 	detections   DetectionService
+	notifier     DiscordNotificationService
 	alertSvc     AlertService
 	recordingSvc RecordingService
 	logBuf       LogBuffer
 }
 
-func NewRouter(cameraSvc CameraService, streamMgr StreamManager, detectionSvc DetectionService, alertSvc AlertService, recordingSvc RecordingService, logBuf LogBuffer) http.Handler {
-	s := &server{cameras: cameraSvc, streams: streamMgr, detections: detectionSvc, alertSvc: alertSvc, recordingSvc: recordingSvc, logBuf: logBuf}
+func NewRouter(cameraSvc CameraService, streamMgr StreamManager, detectionSvc DetectionService, notifier DiscordNotificationService, alertSvc AlertService, recordingSvc RecordingService, logBuf LogBuffer) http.Handler {
+	s := &server{cameras: cameraSvc, streams: streamMgr, detections: detectionSvc, notifier: notifier, alertSvc: alertSvc, recordingSvc: recordingSvc, logBuf: logBuf}
 	mux := http.NewServeMux()
 
 	// Health
@@ -60,6 +61,8 @@ func NewRouter(cameraSvc CameraService, streamMgr StreamManager, detectionSvc De
 	mux.HandleFunc("GET /api/v1/detections/health", s.handleDetectionHealth)
 	mux.HandleFunc("POST /api/v1/cameras/{id}/detections/test-frame", s.handleCaptureTestFrame)
 	mux.HandleFunc("POST /api/v1/cameras/{id}/detections/test", s.handleTriggerTestDetection)
+	mux.HandleFunc("POST /api/v1/cameras/{id}/discord/screenshot", s.handleSendDiscordScreenshot)
+	mux.HandleFunc("POST /api/v1/cameras/{id}/discord/record", s.handleSendDiscordRecording)
 	mux.HandleFunc("GET /api/v1/detection-events", s.handleListDetectionEvents)
 	mux.HandleFunc("GET /api/v1/detection-events/{id}/snapshot", s.handleGetDetectionSnapshot)
 

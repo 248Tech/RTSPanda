@@ -21,14 +21,14 @@ RTSPanda is a small app you run on your PC or server. You add your camera URLs, 
 
 ## What is new (v0.0.4)
 
-- Replaces runtime PyTorch/ultralytics in `ai-worker` with ONNX Runtime + numpy and a multi-stage Docker build for much lower memory usage.
-- Adds stream reliability controls: background keepalive checks, camera stream reset endpoint, and dashboard-level `Reset Network`.
-- Adds per-camera detection ignore zones (polygon editor) so noisy regions can be excluded from YOLO event triggering.
-- Adds `Settings -> Integrations` for OpenAI Vision scene captions and external recording sync to Local Server, Dropbox, Google Drive, OneDrive, or Proton Drive.
-- Adds multi-camera view (up to 4 streams) with batch screenshot and Discord actions.
-- Adds bundled Chrome PiP extension download and installation docs.
+- **YOLO UI Polishing:** per-camera ignore-zone polygon editor, overlay support, and improved YOLO camera setting flows.
+- **Security Updates:** stronger backend input validation for ignore zones and integration settings, plus centralized OpenAI key/model handling in app settings.
+- **UI Updates:** multi-camera mode (up to 4 streams), Integrations tab, dashboard network reset action, and bundled Chrome PiP extension install flow.
+- **Reliability Updates:** ONNX Runtime migration for lower AI-worker memory, stream keepalive health checks, and stream reset APIs.
+- **Connectivity:** external recording sync to Local Server, Dropbox, Google Drive, OneDrive, and Proton Drive.
 
 Release details: [RELEASE_NOTES_v0.0.4.md](RELEASE_NOTES_v0.0.4.md)
+Diff: [v0.0.3...v0.0.4](https://github.com/248Tech/RTSPanda/compare/v0.0.3...v0.0.4)
 
 ---
 

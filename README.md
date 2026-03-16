@@ -19,14 +19,16 @@ RTSPanda is a small app you run on your PC or server. You add your camera URLs, 
 
 ---
 
-## What is new (v0.0.3)
+## What is new (v0.0.4)
 
-- Fixes detector reliability in Docker by stabilizing `ai-worker` runtime dependencies and improving detector URL fallback behavior.
-- Adds verbose YOLO request/detection logging in backend and AI worker for faster troubleshooting.
-- Adds per-camera Discord trigger controls: detection toggle, interval screenshots, interval seconds, clip include toggle, and clip duration.
-- Adds manual Discord actions in camera view: `Screenshot to Discord` and `Record to Discord` (default 60s, configurable format/duration).
-- Adds richer Discord media generation with `webm`, `webp`, and `gif` format fallback.
-- Rewords settings from generic AI wording to YOLO-focused wording, while retaining legacy alert-rule webhook APIs for compatibility.
+- Replaces runtime PyTorch/ultralytics in `ai-worker` with ONNX Runtime + numpy and a multi-stage Docker build for much lower memory usage.
+- Adds stream reliability controls: background keepalive checks, camera stream reset endpoint, and dashboard-level `Reset Network`.
+- Adds per-camera detection ignore zones (polygon editor) so noisy regions can be excluded from YOLO event triggering.
+- Adds `Settings -> Integrations` for OpenAI Vision scene captions and external recording sync to Local Server, Dropbox, Google Drive, OneDrive, or Proton Drive.
+- Adds multi-camera view (up to 4 streams) with batch screenshot and Discord actions.
+- Adds bundled Chrome PiP extension download and installation docs.
+
+Release details: [RELEASE_NOTES_v0.0.4.md](RELEASE_NOTES_v0.0.4.md)
 
 ---
 
@@ -243,6 +245,7 @@ You can change behaviour with environment variables (no config file needed):
 | `PORT` | `8080` | Port the web server uses. |
 | `DATA_DIR` | `./data` | Where the database and recordings are stored. |
 | `MEDIAMTX_BIN` | auto | Full path to `mediamtx.exe` if it’s not in the `mediamtx` folder. |
+| `RCLONE_BIN` | `rclone` | rclone binary path for cloud video storage sync (Dropbox/Drive/OneDrive/Proton Drive). |
 | `FFMPEG_BIN` | `ffmpeg` | FFmpeg path for frame capture used by object detection sampling. |
 | `DETECTOR_URL` | `http://127.0.0.1:8090` | URL of the async detector worker (`/detect`, `/health`). |
 | `DETECTION_SAMPLE_INTERVAL_SECONDS` | `30` | Global sample interval for camera frame capture. |
@@ -250,11 +253,33 @@ You can change behaviour with environment variables (no config file needed):
 | `DETECTION_QUEUE_SIZE` | `128` | Max queued snapshots waiting for detector service. |
 | `DISCORD_MOTION_CLIP_SECONDS` | `4` | Default motion-clip length used when camera-specific value is missing. |
 
+AI worker (YOLO) tuning variables:
+
+| Variable | Default | What it does |
+|----------|---------|----------------|
+| `YOLO_MODEL_PATH` | `/model/yolov8n.onnx` | ONNX model path used by `ai-worker` runtime. |
+| `YOLO_CONFIDENCE` | `0.25` | Base confidence threshold before backend camera filters are applied. Lower for more detections. |
+| `YOLO_IOU` | `0.45` | NMS IoU threshold. Lower values suppress overlapping boxes more aggressively. |
+| `YOLO_MAX_DETECTIONS` | `100` | Maximum objects returned per frame. |
+| `YOLO_LOG_LEVEL` | `INFO` | AI worker logging verbosity (`DEBUG`, `INFO`, `WARNING`, etc). |
+
 **Example (different port and data folder):**
 
 ```powershell
 $env:PORT = "9000"; $env:DATA_DIR = "C:\rtspanda-data"; .\backend\rtspanda.exe
 ```
+
+### External Video Storage
+
+RTSPanda can auto-sync recordings to:
+
+- Local Server (NAS/SMB/NFS path)
+- Dropbox
+- Google Drive
+- OneDrive
+- Proton Drive
+
+Setup guide: [docs/EXTERNAL_VIDEO_STORAGE.md](docs/EXTERNAL_VIDEO_STORAGE.md)
 
 ---
 

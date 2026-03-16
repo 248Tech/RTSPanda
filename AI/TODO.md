@@ -4,6 +4,38 @@ Last updated: 2026-03-14
 
 ---
 
+## Done
+
+### TASK-MEM-001 — RAM Overhaul: 4 GB Target ✓
+
+- **Completed:** 2026-03-14
+- **Description:** Reduced runtime memory footprint to support 4 GB hosts.
+- **Root cause:** PyTorch/ultralytics in the AI worker consumed 600–1500 MB at runtime.
+- **Changes:**
+  - `ai_worker/app/main.py`: onnxruntime-based inference, pure numpy pre/postprocessing
+  - `ai_worker/requirements.txt`: removed ultralytics; added onnxruntime==1.21.0
+  - `ai_worker/Dockerfile`: multi-stage build — PyTorch only in builder, not runtime
+  - `ai_worker/export_model.py`: export helper for non-Docker usage
+  - `docker-compose.yml`: memory limits (512m each), GOMEMLIMIT=200MiB, DETECTION_WORKERS=1
+  - `backend/internal/streams/mediamtx.go`: hlsSegmentCount 7→3
+- **Result:** AI worker 600–1500 MB → 150–250 MB. Total cluster ~730–830 MB.
+
+### TASK-UI-001 — UI Redesign: "Operator Dark" ✓
+
+- **Completed:** 2026-03-14
+- **Description:** Full frontend visual redesign for a more modern, information-dense look.
+- **Changes:**
+  - `tailwind.config.ts`: New zinc-based palette (zinc-950/900/800), blue-600 accent, Inter font family, modal/glow shadows
+  - `index.css`: Inter font import via Google Fonts, custom thin scrollbar styling
+  - `App.tsx`: Fixed left icon sidebar (56px) replaces top navbar; active nav indicator; icon-only with tooltips
+  - `StatusBadge.tsx`: Pill-shaped badges with tinted bg + ring instead of bare dot+text; "Live" label for online
+  - `CameraCard.tsx`: Status badge overlaid on thumbnail (top-right); feature indicator icons (recording=red, YOLO=violet, Discord=indigo); subtle grid texture; hover ring
+  - `Modal.tsx`: `backdrop-blur-sm` overlay, `rounded-xl`, `shadow-modal`, click-outside-to-close
+  - `EmptyState.tsx`: SVG camera icon in rounded box replaces emoji; "+" icon in CTA button
+  - `Dashboard.tsx`: Skeleton loading cards (no spinner), "X/Y active" pill counter, refined multi-view button
+
+---
+
 ## In Progress
 
 ### TASK-AI-003 — Detection event retention + cleanup policy

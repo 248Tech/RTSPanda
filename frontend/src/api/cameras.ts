@@ -1,3 +1,10 @@
+export interface IgnorePolygonPoint {
+  x: number
+  y: number
+}
+
+export type IgnorePolygon = IgnorePolygonPoint[]
+
 export interface Camera {
   id: string
   name: string
@@ -8,6 +15,7 @@ export interface Camera {
   tracking_enabled: boolean
   tracking_min_confidence: number
   tracking_labels: string[]
+  tracking_ignore_polygons: IgnorePolygon[]
   discord_alerts_enabled: boolean
   discord_webhook_url: string
   discord_mention: string
@@ -33,6 +41,7 @@ export interface CreateCameraInput {
   tracking_enabled?: boolean
   tracking_min_confidence?: number
   tracking_labels?: string[]
+  tracking_ignore_polygons?: IgnorePolygon[]
   discord_alerts_enabled?: boolean
   discord_webhook_url?: string
   discord_mention?: string
@@ -55,6 +64,7 @@ export interface UpdateCameraInput {
   tracking_enabled?: boolean
   tracking_min_confidence?: number
   tracking_labels?: string[]
+  tracking_ignore_polygons?: IgnorePolygon[]
   discord_alerts_enabled?: boolean
   discord_webhook_url?: string
   discord_mention?: string
@@ -117,4 +127,14 @@ export async function getStreamInfo(id: string): Promise<StreamInfo> {
   const res = await fetch(`${BASE}/cameras/${id}/stream`)
   if (!res.ok) throw new Error(`getStreamInfo: ${res.status}`)
   return res.json()
+}
+
+export async function resetStream(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/cameras/${id}/stream/reset`, { method: 'POST' })
+  if (!res.ok) throw new Error(`resetStream: ${res.status}`)
+}
+
+export async function resetAllStreams(): Promise<void> {
+  const res = await fetch(`${BASE}/streams/reset`, { method: 'POST' })
+  if (!res.ok) throw new Error(`resetAllStreams: ${res.status}`)
 }

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rtspanda/rtspanda/internal/cameras"
@@ -228,16 +230,23 @@ func (s *server) handleSendDiscordRecording(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(durationSeconds+45)*time.Second)
-	defer cancel()
-
-	if err := s.notifier.SendCameraRecording(ctx, camera, durationSeconds, format); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	if strings.TrimSpace(camera.DiscordWebhookURL) == "" {
+		writeError(w, http.StatusBadRequest, "camera discord webhook URL is not configured")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":           "sent",
+	go func(c cameras.Camera, clipSeconds int, clipFormat string) {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(clipSeconds+45)*time.Second)
+		defer cancel()
+		if err := s.notifier.SendCameraRecording(ctx, c, clipSeconds, clipFormat); err != nil {
+			log.Printf("detections: manual discord recording failed camera=%s duration=%ds format=%s err=%v", c.ID, clipSeconds, clipFormat, err)
+			return
+		}
+		log.Printf("detections: manual discord recording sent camera=%s duration=%ds format=%s", c.ID, clipSeconds, clipFormat)
+	}(camera, durationSeconds, format)
+
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"status":           "recording",
 		"camera_id":        camera.ID,
 		"duration_seconds": durationSeconds,
 		"format":           format,

@@ -6,7 +6,8 @@
       "Bash(npm install:*)",
       "Bash(go build:*)",
       "Bash(npx tailwindcss:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(cd:*)"
     ]
   }
 }

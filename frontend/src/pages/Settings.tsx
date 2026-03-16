@@ -16,11 +16,17 @@ import {
   type AlertType,
 } from '../api/alerts'
 import { getLogs } from '../api/logs'
+import {
+  getAppSettings,
+  updateAppSettings,
+  type AppSettings,
+  type VideoStorageProvider,
+} from '../api/settings'
 import { CameraForm } from '../components/CameraForm'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 
-type Tab = 'cameras' | 'alerts' | 'logs'
+type Tab = 'cameras' | 'alerts' | 'integrations' | 'logs'
 type CameraModalMode = 'add' | 'edit' | 'delete' | null
 type AlertModalMode = 'add' | 'edit' | 'delete' | null
 
@@ -452,6 +458,338 @@ function LogsPanel() {
   )
 }
 
+// ─── Integrations panel ───────────────────────────────────────────────────────
+
+const VIDEO_STORAGE_PROVIDERS: Array<{ value: VideoStorageProvider; label: string }> = [
+  { value: 'local_server', label: 'Local Server (NAS/SMB/NFS)' },
+  { value: 'dropbox', label: 'Dropbox (rclone)' },
+  { value: 'google_drive', label: 'Google Drive (rclone)' },
+  { value: 'onedrive', label: 'OneDrive (rclone)' },
+  { value: 'proton_drive', label: 'Proton Drive (rclone)' },
+]
+
+function IntegrationsPanel() {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+
+  const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [openAIEnabled, setOpenAIEnabled] = useState(false)
+  const [openAIModel, setOpenAIModel] = useState('gpt-4o-mini')
+  const [openAIAPIKey, setOpenAIAPIKey] = useState('')
+  const [clearAPIKey, setClearAPIKey] = useState(false)
+  const [videoStorageEnabled, setVideoStorageEnabled] = useState(false)
+  const [videoStorageProvider, setVideoStorageProvider] = useState<VideoStorageProvider>('local_server')
+  const [videoStorageLocalPath, setVideoStorageLocalPath] = useState('')
+  const [videoStorageRemoteName, setVideoStorageRemoteName] = useState('')
+  const [videoStorageRemotePath, setVideoStorageRemotePath] = useState('RTSPanda')
+  const [videoStorageSyncIntervalSec, setVideoStorageSyncIntervalSec] = useState('300')
+  const [videoStorageMinFileAgeSec, setVideoStorageMinFileAgeSec] = useState('120')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const cfg = await getAppSettings()
+      setSettings(cfg)
+      setOpenAIEnabled(cfg.openai_enabled)
+      setOpenAIModel(cfg.openai_model || 'gpt-4o-mini')
+      setOpenAIAPIKey('')
+      setClearAPIKey(false)
+      setVideoStorageEnabled(cfg.video_storage_enabled)
+      setVideoStorageProvider(cfg.video_storage_provider || 'local_server')
+      setVideoStorageLocalPath(cfg.video_storage_local_path || '')
+      setVideoStorageRemoteName(cfg.video_storage_remote_name || '')
+      setVideoStorageRemotePath(cfg.video_storage_remote_path || 'RTSPanda')
+      setVideoStorageSyncIntervalSec(String(cfg.video_storage_sync_interval_seconds || 300))
+      setVideoStorageMinFileAgeSec(String(cfg.video_storage_min_file_age_seconds || 120))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load app settings')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const handleSave = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const syncInterval = Number.parseInt(videoStorageSyncIntervalSec, 10)
+      if (!Number.isFinite(syncInterval) || syncInterval < 30 || syncInterval > 86400) {
+        throw new Error('Video storage sync interval must be between 30 and 86400 seconds.')
+      }
+      const minFileAge = Number.parseInt(videoStorageMinFileAgeSec, 10)
+      if (!Number.isFinite(minFileAge) || minFileAge < 15 || minFileAge > 3600) {
+        throw new Error('Video storage minimum file age must be between 15 and 3600 seconds.')
+      }
+
+      const payload: Parameters<typeof updateAppSettings>[0] = {
+        openai_enabled: openAIEnabled,
+        openai_model: openAIModel.trim() || 'gpt-4o-mini',
+        video_storage_enabled: videoStorageEnabled,
+        video_storage_provider: videoStorageProvider,
+        video_storage_local_path: videoStorageLocalPath.trim(),
+        video_storage_remote_name: videoStorageRemoteName.trim(),
+        video_storage_remote_path: videoStorageRemotePath.trim() || 'RTSPanda',
+        video_storage_sync_interval_seconds: syncInterval,
+        video_storage_min_file_age_seconds: minFileAge,
+      }
+      if (openAIAPIKey.trim() !== '') {
+        payload.openai_api_key = openAIAPIKey.trim()
+      }
+      if (clearAPIKey) {
+        payload.clear_openai_api_key = true
+      }
+
+      const updated = await updateAppSettings(payload)
+      setSettings(updated)
+      setOpenAIEnabled(updated.openai_enabled)
+      setOpenAIModel(updated.openai_model || 'gpt-4o-mini')
+      setOpenAIAPIKey('')
+      setClearAPIKey(false)
+      setVideoStorageEnabled(updated.video_storage_enabled)
+      setVideoStorageProvider(updated.video_storage_provider || 'local_server')
+      setVideoStorageLocalPath(updated.video_storage_local_path || '')
+      setVideoStorageRemoteName(updated.video_storage_remote_name || '')
+      setVideoStorageRemotePath(updated.video_storage_remote_path || 'RTSPanda')
+      setVideoStorageSyncIntervalSec(String(updated.video_storage_sync_interval_seconds || 300))
+      setVideoStorageMinFileAgeSec(String(updated.video_storage_min_file_age_seconds || 120))
+      setMessage('Integration settings saved.')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save app settings')
+    } finally {
+      setSaving(false)
+    }
+  }, [
+    clearAPIKey,
+    openAIAPIKey,
+    openAIEnabled,
+    openAIModel,
+    videoStorageEnabled,
+    videoStorageProvider,
+    videoStorageLocalPath,
+    videoStorageRemoteName,
+    videoStorageRemotePath,
+    videoStorageSyncIntervalSec,
+    videoStorageMinFileAgeSec,
+  ])
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-4 text-sm text-text-muted">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-hidden />
+        Loading integrations…
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSave} className="space-y-5">
+      <div className="rounded-lg border border-border bg-card p-4">
+        <h3 className="text-base font-semibold text-text-primary">OpenAI Vision Captions</h3>
+        <p className="mt-1 text-sm text-text-muted">
+          Generate short and verbose scene text for Discord screenshot alerts (example: person at front door, package in driveway).
+        </p>
+        <p className="mt-2 text-xs text-text-muted">
+          This sends snapshot images to OpenAI when enabled.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 rounded-lg border border-border bg-card p-4">
+        <label className="flex items-center gap-2 text-sm text-text-primary">
+          <input
+            type="checkbox"
+            checked={openAIEnabled}
+            onChange={(e) => setOpenAIEnabled(e.target.checked)}
+            className="h-4 w-4 rounded border-border bg-base text-accent focus:ring-accent"
+          />
+          Enable OpenAI captions for Discord screenshot alerts
+        </label>
+
+        <div>
+          <label htmlFor="openai-model" className="mb-1 block text-sm text-text-primary">
+            Model
+          </label>
+          <input
+            id="openai-model"
+            type="text"
+            value={openAIModel}
+            onChange={(e) => setOpenAIModel(e.target.value)}
+            placeholder="gpt-4o-mini"
+            className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="openai-key" className="mb-1 block text-sm text-text-primary">
+            OpenAI API key
+          </label>
+          <input
+            id="openai-key"
+            type="password"
+            value={openAIAPIKey}
+            onChange={(e) => setOpenAIAPIKey(e.target.value)}
+            placeholder={settings?.openai_api_key_set ? 'Configured (enter new key to rotate)' : 'sk-...'}
+            className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          />
+          <p className="mt-1 text-xs text-text-muted">
+            {settings?.openai_api_key_set ? 'A key is currently configured.' : 'No key configured yet.'}
+          </p>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm text-text-primary">
+          <input
+            type="checkbox"
+            checked={clearAPIKey}
+            onChange={(e) => setClearAPIKey(e.target.checked)}
+            className="h-4 w-4 rounded border-border bg-base text-accent focus:ring-accent"
+          />
+          Clear saved OpenAI API key
+        </label>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card p-4">
+        <h3 className="text-base font-semibold text-text-primary">External Video Storage</h3>
+        <p className="mt-1 text-sm text-text-muted">
+          Auto-sync completed recording files to a local server path or a cloud provider (Dropbox, Google Drive, OneDrive, Proton Drive).
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 rounded-lg border border-border bg-card p-4">
+        <label className="flex items-center gap-2 text-sm text-text-primary">
+          <input
+            type="checkbox"
+            checked={videoStorageEnabled}
+            onChange={(e) => setVideoStorageEnabled(e.target.checked)}
+            className="h-4 w-4 rounded border-border bg-base text-accent focus:ring-accent"
+          />
+          Enable external video storage sync
+        </label>
+
+        <div>
+          <label htmlFor="video-storage-provider" className="mb-1 block text-sm text-text-primary">
+            Provider
+          </label>
+          <select
+            id="video-storage-provider"
+            value={videoStorageProvider}
+            onChange={(e) => setVideoStorageProvider(e.target.value as VideoStorageProvider)}
+            className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          >
+            {VIDEO_STORAGE_PROVIDERS.map((provider) => (
+              <option key={provider.value} value={provider.value}>
+                {provider.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {videoStorageProvider === 'local_server' ? (
+          <div>
+            <label htmlFor="video-storage-local-path" className="mb-1 block text-sm text-text-primary">
+              Local server destination path
+            </label>
+            <input
+              id="video-storage-local-path"
+              type="text"
+              value={videoStorageLocalPath}
+              onChange={(e) => setVideoStorageLocalPath(e.target.value)}
+              placeholder="\\\\nas\\camera-archive\\rtspanda or /mnt/nas/rtspanda"
+              className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+        ) : (
+          <>
+            <div>
+              <label htmlFor="video-storage-remote-name" className="mb-1 block text-sm text-text-primary">
+                rclone remote name
+              </label>
+              <input
+                id="video-storage-remote-name"
+                type="text"
+                value={videoStorageRemoteName}
+                onChange={(e) => setVideoStorageRemoteName(e.target.value)}
+                placeholder="dropbox, gdrive, onedrive, protondrive"
+                className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+            </div>
+            <div>
+              <label htmlFor="video-storage-remote-path" className="mb-1 block text-sm text-text-primary">
+                Remote folder path
+              </label>
+              <input
+                id="video-storage-remote-path"
+                type="text"
+                value={videoStorageRemotePath}
+                onChange={(e) => setVideoStorageRemotePath(e.target.value)}
+                placeholder="RTSPanda"
+                className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+            </div>
+          </>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label htmlFor="video-storage-sync-interval" className="mb-1 block text-sm text-text-primary">
+              Sync interval (seconds)
+            </label>
+            <input
+              id="video-storage-sync-interval"
+              type="number"
+              min={30}
+              max={86400}
+              step={1}
+              value={videoStorageSyncIntervalSec}
+              onChange={(e) => setVideoStorageSyncIntervalSec(e.target.value)}
+              className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+          <div>
+            <label htmlFor="video-storage-min-age" className="mb-1 block text-sm text-text-primary">
+              Min file age before upload (seconds)
+            </label>
+            <input
+              id="video-storage-min-age"
+              type="number"
+              min={15}
+              max={3600}
+              step={1}
+              value={videoStorageMinFileAgeSec}
+              onChange={(e) => setVideoStorageMinFileAgeSec(e.target.value)}
+              className="w-full rounded-lg border border-border bg-base px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+        </div>
+
+        <p className="text-xs text-text-muted">
+          Cloud providers use <code className="rounded bg-base px-1">rclone</code>. Set <code className="rounded bg-base px-1">RCLONE_BIN</code> if the binary is not on PATH.
+        </p>
+      </div>
+
+      {error && <p className="text-sm text-status-offline" role="alert">{error}</p>}
+      {message && <p className="text-sm text-status-online">{message}</p>}
+
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-base disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save Integrations'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
 // ─── Main Settings Page ────────────────────────────────────────────────────────
 
 export default function Settings() {
@@ -567,7 +905,7 @@ export default function Settings() {
       {/* Tab bar */}
       <div className="flex items-center justify-between gap-4 border-b border-border pb-1">
         <nav className="flex gap-1" aria-label="Settings sections">
-          {(['cameras', 'alerts', 'logs'] as Tab[]).map((t) => (
+          {(['cameras', 'alerts', 'integrations', 'logs'] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
@@ -578,7 +916,7 @@ export default function Settings() {
                   : 'text-text-muted hover:bg-card-hover hover:text-text-primary'
               }`}
             >
-              {t === 'alerts' ? 'YOLO Alerts' : t === 'logs' ? 'Logs' : 'Cameras'}
+              {t === 'alerts' ? 'YOLO Alerts' : t === 'integrations' ? 'Integrations' : t === 'logs' ? 'Logs' : 'Cameras'}
             </button>
           ))}
         </nav>
@@ -660,17 +998,20 @@ export default function Settings() {
       {/* YOLO Alerts tab */}
       {tab === 'alerts' && <AlertsPanel cameras={cameras} />}
 
+      {/* Integrations tab */}
+      {tab === 'integrations' && <IntegrationsPanel />}
+
       {/* Logs tab */}
       {tab === 'logs' && <LogsPanel />}
 
       {/* Modals */}
       {modalMode === 'add' && (
-        <Modal title="Add Camera" onClose={closeModal}>
+        <Modal title="Add Camera" onClose={closeModal} size="xl">
           <CameraForm onSubmit={handleFormSubmit} onCancel={closeModal} submitError={formError} isSubmitting={isSubmitting} />
         </Modal>
       )}
       {modalMode === 'edit' && editingCamera && (
-        <Modal title="Edit Camera" onClose={closeModal}>
+        <Modal title="Edit Camera" onClose={closeModal} size="xl">
           <CameraForm camera={editingCamera} onSubmit={handleFormSubmit} onCancel={closeModal} submitError={formError} isSubmitting={isSubmitting} />
         </Modal>
       )}

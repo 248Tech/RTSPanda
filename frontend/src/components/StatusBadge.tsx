@@ -5,32 +5,32 @@ export interface StatusBadgeProps {
 }
 
 const labels: Record<StreamStatus, string> = {
-  online: 'Online',
+  online: 'Live',
   offline: 'Offline',
   connecting: 'Connecting',
 }
 
-const dotColors: Record<StreamStatus, string> = {
-  online: 'bg-status-online',
-  offline: 'bg-status-offline',
-  connecting: 'bg-status-connecting animate-pulse',
+const styles: Record<StreamStatus, string> = {
+  online: 'bg-status-online/10 text-status-online ring-1 ring-status-online/20',
+  offline: 'bg-status-offline/10 text-status-offline ring-1 ring-status-offline/20',
+  connecting: 'bg-status-connecting/10 text-status-connecting ring-1 ring-status-connecting/20',
 }
 
-const labelColors: Record<StreamStatus, string> = {
-  online: 'text-status-online',
-  offline: 'text-status-offline',
-  connecting: 'text-status-connecting',
+const dotStyles: Record<StreamStatus, string> = {
+  online: 'bg-status-online animate-pulse',
+  offline: 'bg-status-offline',
+  connecting: 'bg-status-connecting animate-pulse',
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 text-xs font-medium ${labelColors[status]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${styles[status]}`}
       role="status"
       aria-label={`Stream status: ${labels[status]}`}
     >
       <span
-        className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dotColors[status]}`}
+        className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dotStyles[status]}`}
         aria-hidden
       />
       {labels[status]}

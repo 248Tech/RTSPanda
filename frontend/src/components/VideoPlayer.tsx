@@ -1,8 +1,9 @@
 import Hls from 'hls.js'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { IgnorePolygon } from '../api/cameras'
 
 /** Captures the current video frame and triggers a PNG download. */
-function captureScreenshot(video: HTMLVideoElement, label: string) {
+export function captureVideoScreenshot(video: HTMLVideoElement, label: string) {
   const canvas = document.createElement('canvas')
   canvas.width = video.videoWidth || 1280
   canvas.height = video.videoHeight || 720
@@ -48,6 +49,12 @@ export interface VideoPlayerProps {
   showOverlay?: boolean
   /** Called when user requests retry after an error. */
   onRetry?: () => void
+  /** Optional callback to expose the internal <video> element. */
+  onVideoElement?: (video: HTMLVideoElement | null) => void
+  /** Optional normalized polygons (0..1) to visualize ignored detection zones. */
+  ignorePolygons?: IgnorePolygon[]
+  /** Controls visibility of ignore polygons. */
+  showIgnorePolygons?: boolean
   className?: string
 }
 
@@ -61,6 +68,9 @@ export function VideoPlayer({
   overlayDetections = [],
   showOverlay = true,
   onRetry,
+  onVideoElement,
+  ignorePolygons = [],
+  showIgnorePolygons = true,
   className = '',
 }: VideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -75,6 +85,11 @@ export function VideoPlayer({
   useEffect(() => {
     hlsUrlRef.current = hlsUrl
   }, [hlsUrl])
+
+  useEffect(() => {
+    onVideoElement?.(videoRef.current)
+    return () => onVideoElement?.(null)
+  }, [onVideoElement])
 
   const loadSource = useCallback((url: string) => {
     const video = videoRef.current
@@ -210,8 +225,29 @@ export function VideoPlayer({
   const handleScreenshot = useCallback(() => {
     const video = videoRef.current
     if (!video) return
-    captureScreenshot(video, screenshotLabel)
+    captureVideoScreenshot(video, screenshotLabel)
   }, [screenshotLabel])
+
+  const getVideoRenderRect = useCallback(() => {
+    const cw = containerSize.width
+    const ch = containerSize.height
+    if (cw <= 0 || ch <= 0) {
+      return null
+    }
+
+    const vw = videoSize.width > 0 ? videoSize.width : 16
+    const vh = videoSize.height > 0 ? videoSize.height : 9
+    const scale = Math.min(cw / vw, ch / vh)
+    const renderedWidth = vw * scale
+    const renderedHeight = vh * scale
+
+    return {
+      left: (cw - renderedWidth) / 2,
+      top: (ch - renderedHeight) / 2,
+      width: renderedWidth,
+      height: renderedHeight,
+    }
+  }, [containerSize.height, containerSize.width, videoSize.height, videoSize.width])
 
   const getOverlayBox = useCallback((detection: OverlayDetection) => {
     const cw = containerSize.width
@@ -259,6 +295,16 @@ export function VideoPlayer({
     return palette[seed % palette.length]
   }, [])
 
+  const ignorePolygonPoints = useCallback((polygon: IgnorePolygon) => {
+    const rect = getVideoRenderRect()
+    if (!rect) {
+      return ''
+    }
+    return polygon
+      .map((pt) => `${rect.left + pt.x * rect.width},${rect.top + pt.y * rect.height}`)
+      .join(' ')
+  }, [getVideoRenderRect])
+
   return (
     <div ref={containerRef} className={`relative aspect-video w-full overflow-hidden rounded-lg bg-black ${className}`}>
       <video
@@ -298,6 +344,26 @@ export function VideoPlayer({
             )
           })}
         </div>
+      )}
+      {showIgnorePolygons && ignorePolygons.length > 0 && (
+        <svg className="pointer-events-none absolute inset-0" width="100%" height="100%" aria-hidden>
+          {ignorePolygons.map((polygon, index) => {
+            const points = ignorePolygonPoints(polygon)
+            if (points === '') {
+              return null
+            }
+            return (
+              <polygon
+                key={`ignore-${index}`}
+                points={points}
+                fill="rgba(239, 68, 68, 0.2)"
+                stroke="rgba(239, 68, 68, 0.95)"
+                strokeWidth={2}
+                strokeDasharray="6 4"
+              />
+            )
+          })}
+        </svg>
       )}
       {/* Screenshot button — only shown when playing */}
       {state === 'playing' && (

@@ -4,6 +4,7 @@ import {
   getStreamInfo,
   updateCamera,
   type Camera,
+  type IgnorePolygon,
 } from '../api/cameras'
 import {
   detectionSnapshotUrl,
@@ -17,6 +18,8 @@ import { StatusBadge } from '../components/StatusBadge'
 import type { StreamStatus } from '../components/StatusBadge'
 import { VideoPlayer } from '../components/VideoPlayer'
 import { RecordingsList } from '../components/RecordingsList'
+import { Modal } from '../components/Modal'
+import { IgnoreZoneEditor } from '../components/IgnoreZoneEditor'
 
 export interface CameraViewProps {
   cameraId: string
@@ -80,6 +83,11 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
   const [detectionError, setDetectionError] = useState<string | null>(null)
   const [isLoadingEvents, setIsLoadingEvents] = useState(false)
   const [nowMs, setNowMs] = useState(() => Date.now())
+  const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(null)
+  const [ignoreEditorOpen, setIgnoreEditorOpen] = useState(false)
+  const [ignoreEditorFrame, setIgnoreEditorFrame] = useState<string | null>(null)
+  const [savingIgnoreZones, setSavingIgnoreZones] = useState(false)
+  const [ignoreZoneError, setIgnoreZoneError] = useState<string | null>(null)
 
   const fetchCameraAndStream = useCallback(async () => {
     setError(null)
@@ -225,13 +233,53 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
       const durationSeconds = camera.discord_record_duration_seconds ?? 60
       const format = camera.discord_record_format ?? 'webp'
       await sendDiscordRecording(camera.id, durationSeconds, format)
-      setTestMessage(`Recording sent to Discord (${durationSeconds}s ${format}).`)
+      setTestMessage(`Recording started (${durationSeconds}s ${format}). Discord will receive it when capture/upload completes.`)
     } catch (e) {
       setTestMessage(e instanceof Error ? e.message : 'Failed to send recording to Discord')
     } finally {
       setSendingDiscordRecording(false)
     }
   }, [camera, sendingDiscordRecording])
+
+  const handleOpenIgnoreEditor = useCallback(() => {
+    if (!camera) return
+    if (!videoElement || videoElement.videoWidth <= 0 || videoElement.videoHeight <= 0) {
+      setTestMessage('Wait for the stream to start before editing ignore zones.')
+      return
+    }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = videoElement.videoWidth
+    canvas.height = videoElement.videoHeight
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      setTestMessage('Could not initialize ignore-zone editor frame capture.')
+      return
+    }
+    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height)
+    const frameDataURL = canvas.toDataURL('image/jpeg', 0.92)
+    setIgnoreZoneError(null)
+    setIgnoreEditorFrame(frameDataURL)
+    setIgnoreEditorOpen(true)
+  }, [camera, videoElement])
+
+  const handleSaveIgnoreZones = useCallback(async (polygons: IgnorePolygon[]) => {
+    if (!camera) return
+    setSavingIgnoreZones(true)
+    setIgnoreZoneError(null)
+    try {
+      const updated = await updateCamera(camera.id, {
+        tracking_ignore_polygons: polygons,
+      })
+      setCamera(updated)
+      setIgnoreEditorOpen(false)
+      setTestMessage(`Ignore zones saved (${updated.tracking_ignore_polygons.length} zone(s)).`)
+    } catch (e) {
+      setIgnoreZoneError(e instanceof Error ? e.message : 'Failed to save ignore zones')
+    } finally {
+      setSavingIgnoreZones(false)
+    }
+  }, [camera])
 
   if (loading) {
     return (
@@ -316,6 +364,14 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
           </button>
           <button
             type="button"
+            onClick={handleOpenIgnoreEditor}
+            className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-card-hover focus:outline-none focus:ring-2 focus:ring-accent"
+            title="Draw polygons to ignore noisy zones from detection"
+          >
+            Edit Ignore Zones
+          </button>
+          <button
+            type="button"
             onClick={handleSendDiscordScreenshot}
             disabled={sendingDiscordScreenshot || camera.discord_webhook_url.trim() === ''}
             className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-text-primary transition-colors hover:bg-card-hover focus:outline-none focus:ring-2 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-60"
@@ -367,6 +423,9 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
           overlayDetections={overlayDetections}
           showOverlay={overlayEnabled}
           onRetry={handleRetry}
+          onVideoElement={setVideoElement}
+          ignorePolygons={camera.tracking_ignore_polygons ?? []}
+          showIgnorePolygons
         />
       </div>
 
@@ -385,6 +444,9 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
             </span>
             <span className="rounded-full bg-card px-2 py-0.5 text-text-muted">
               Interval: {camera.detection_sample_seconds ?? 30}s
+            </span>
+            <span className="rounded-full bg-card px-2 py-0.5 text-text-muted">
+              Ignore zones: {(camera.tracking_ignore_polygons ?? []).length}
             </span>
             {camera.discord_alerts_enabled && (
               <span className="rounded-full bg-status-online/15 px-2 py-0.5 text-status-online">
@@ -461,6 +523,31 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
       <div className="border-t border-border pt-4">
         <RecordingsList cameraId={camera.id} recordEnabled={camera.record_enabled} />
       </div>
+
+      {ignoreEditorOpen && ignoreEditorFrame && (
+        <Modal
+          title={`Ignore Zones · ${camera.name}`}
+          onClose={() => {
+            if (savingIgnoreZones) return
+            setIgnoreEditorOpen(false)
+            setIgnoreZoneError(null)
+          }}
+          size="xl"
+        >
+          <IgnoreZoneEditor
+            snapshotDataUrl={ignoreEditorFrame}
+            initialPolygons={camera.tracking_ignore_polygons ?? []}
+            isSaving={savingIgnoreZones}
+            error={ignoreZoneError}
+            onCancel={() => {
+              if (savingIgnoreZones) return
+              setIgnoreEditorOpen(false)
+              setIgnoreZoneError(null)
+            }}
+            onSave={handleSaveIgnoreZones}
+          />
+        </Modal>
+      )}
     </div>
   )
 }

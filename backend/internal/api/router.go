@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/rtspanda/rtspanda/internal/cameras"
+	"github.com/rtspanda/rtspanda/internal/settings"
 	"github.com/rtspanda/rtspanda/internal/streams"
 )
 
@@ -25,11 +26,19 @@ type StreamManager interface {
 	OnCameraRemoved(id string)
 	OnCameraUpdated(c cameras.Camera)
 	StreamStatus(cameraID string) streams.StreamStatus
+	ResetStream(cameraID string) error
+	ResetAllStreams()
+}
+
+type SettingsService interface {
+	Get() (settings.AppSettings, error)
+	Update(input settings.UpdateInput) (settings.AppSettings, error)
 }
 
 type server struct {
 	cameras      CameraService
 	streams      StreamManager
+	settings     SettingsService
 	detections   DetectionService
 	notifier     DiscordNotificationService
 	alertSvc     AlertService
@@ -37,8 +46,17 @@ type server struct {
 	logBuf       LogBuffer
 }
 
-func NewRouter(cameraSvc CameraService, streamMgr StreamManager, detectionSvc DetectionService, notifier DiscordNotificationService, alertSvc AlertService, recordingSvc RecordingService, logBuf LogBuffer) http.Handler {
-	s := &server{cameras: cameraSvc, streams: streamMgr, detections: detectionSvc, notifier: notifier, alertSvc: alertSvc, recordingSvc: recordingSvc, logBuf: logBuf}
+func NewRouter(cameraSvc CameraService, streamMgr StreamManager, settingsSvc SettingsService, detectionSvc DetectionService, notifier DiscordNotificationService, alertSvc AlertService, recordingSvc RecordingService, logBuf LogBuffer) http.Handler {
+	s := &server{
+		cameras:      cameraSvc,
+		streams:      streamMgr,
+		settings:     settingsSvc,
+		detections:   detectionSvc,
+		notifier:     notifier,
+		alertSvc:     alertSvc,
+		recordingSvc: recordingSvc,
+		logBuf:       logBuf,
+	}
 	mux := http.NewServeMux()
 
 	// Health
@@ -47,6 +65,10 @@ func NewRouter(cameraSvc CameraService, streamMgr StreamManager, detectionSvc De
 	// Logs (in-memory buffer)
 	mux.HandleFunc("GET /api/v1/logs", s.handleLogs)
 
+	// App settings
+	mux.HandleFunc("GET /api/v1/settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /api/v1/settings", s.handleUpdateSettings)
+
 	// Camera CRUD
 	mux.HandleFunc("GET /api/v1/cameras", s.handleListCameras)
 	mux.HandleFunc("POST /api/v1/cameras", s.handleCreateCamera)
@@ -54,8 +76,10 @@ func NewRouter(cameraSvc CameraService, streamMgr StreamManager, detectionSvc De
 	mux.HandleFunc("PUT /api/v1/cameras/{id}", s.handleUpdateCamera)
 	mux.HandleFunc("DELETE /api/v1/cameras/{id}", s.handleDeleteCamera)
 
-	// Stream status
+	// Stream status and control
 	mux.HandleFunc("GET /api/v1/cameras/{id}/stream", s.handleGetStream)
+	mux.HandleFunc("POST /api/v1/cameras/{id}/stream/reset", s.handleResetStream)
+	mux.HandleFunc("POST /api/v1/streams/reset", s.handleResetAllStreams)
 
 	// Detection foundation endpoints
 	mux.HandleFunc("GET /api/v1/detections/health", s.handleDetectionHealth)

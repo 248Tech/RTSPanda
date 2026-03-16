@@ -2,6 +2,7 @@ package cameras
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -62,6 +63,10 @@ func (s *Service) Create(input CreateInput) (Camera, error) {
 	}
 
 	trackingLabels := normalizeTrackingLabels(input.TrackingLabels)
+	trackingIgnorePolygons, err := normalizeTrackingIgnorePolygons(input.TrackingIgnorePolygons)
+	if err != nil {
+		return Camera{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 
 	discordAlertsEnabled := false
 	if input.DiscordAlertsEnabled != nil {
@@ -152,6 +157,7 @@ func (s *Service) Create(input CreateInput) (Camera, error) {
 		TrackingEnabled:                  trackingEnabled,
 		TrackingMinConfidence:            trackingMinConfidence,
 		TrackingLabels:                   trackingLabels,
+		TrackingIgnorePolygons:           trackingIgnorePolygons,
 		DiscordAlertsEnabled:             discordAlertsEnabled,
 		DiscordWebhookURL:                discordWebhookURL,
 		DiscordMention:                   discordMention,
@@ -217,6 +223,13 @@ func (s *Service) Update(id string, input UpdateInput) (Camera, error) {
 	}
 	if input.TrackingLabels != nil {
 		c.TrackingLabels = normalizeTrackingLabels(*input.TrackingLabels)
+	}
+	if input.TrackingIgnorePolygons != nil {
+		normalized, err := normalizeTrackingIgnorePolygons(*input.TrackingIgnorePolygons)
+		if err != nil {
+			return Camera{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		c.TrackingIgnorePolygons = normalized
 	}
 	if input.DiscordAlertsEnabled != nil {
 		c.DiscordAlertsEnabled = *input.DiscordAlertsEnabled
@@ -314,6 +327,57 @@ func normalizeTrackingLabels(labels []string) []string {
 		out = append(out, label)
 	}
 	return out
+}
+
+func normalizeTrackingIgnorePolygons(polygons [][]Point) ([][]Point, error) {
+	if len(polygons) == 0 {
+		return [][]Point{}, nil
+	}
+	if len(polygons) > 16 {
+		return nil, fmt.Errorf("tracking_ignore_polygons supports up to 16 polygons")
+	}
+
+	normalized := make([][]Point, 0, len(polygons))
+	for idx, polygon := range polygons {
+		if len(polygon) < 3 {
+			return nil, fmt.Errorf("tracking_ignore_polygons[%d] must have at least 3 points", idx)
+		}
+		if len(polygon) > 64 {
+			return nil, fmt.Errorf("tracking_ignore_polygons[%d] exceeds 64 points", idx)
+		}
+
+		out := make([]Point, 0, len(polygon))
+		for pointIdx, pt := range polygon {
+			if math.IsNaN(pt.X) || math.IsNaN(pt.Y) || math.IsInf(pt.X, 0) || math.IsInf(pt.Y, 0) {
+				return nil, fmt.Errorf("tracking_ignore_polygons[%d][%d] must be finite", idx, pointIdx)
+			}
+			if pt.X < 0 || pt.X > 1 || pt.Y < 0 || pt.Y > 1 {
+				return nil, fmt.Errorf("tracking_ignore_polygons[%d][%d] must be normalized between 0 and 1", idx, pointIdx)
+			}
+			out = append(out, Point{X: pt.X, Y: pt.Y})
+		}
+
+		// If client sends a closed polygon, drop the duplicate closing point.
+		if len(out) >= 4 {
+			first := out[0]
+			last := out[len(out)-1]
+			if almostEqual(first.X, last.X) && almostEqual(first.Y, last.Y) {
+				out = out[:len(out)-1]
+			}
+		}
+		if len(out) < 3 {
+			return nil, fmt.Errorf("tracking_ignore_polygons[%d] must have at least 3 distinct points", idx)
+		}
+
+		normalized = append(normalized, out)
+	}
+
+	return normalized, nil
+}
+
+func almostEqual(a, b float64) bool {
+	const epsilon = 1e-9
+	return math.Abs(a-b) <= epsilon
 }
 
 func normalizeDiscordRecordFormat(raw string) (string, error) {

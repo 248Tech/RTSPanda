@@ -19,6 +19,7 @@ func NewRepository(db *sql.DB) *Repository {
 func (r *Repository) List() ([]Camera, error) {
 	rows, err := r.db.Query(
 		`SELECT id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, tracking_enabled, tracking_min_confidence, tracking_labels,
+		        tracking_ignore_polygons,
 		        discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds,
 				discord_trigger_on_detection, discord_trigger_on_interval, discord_screenshot_interval_seconds,
 				discord_include_motion_clip, discord_motion_clip_seconds, discord_record_format, discord_record_duration_seconds,
@@ -44,6 +45,7 @@ func (r *Repository) List() ([]Camera, error) {
 func (r *Repository) GetByID(id string) (Camera, error) {
 	row := r.db.QueryRow(
 		`SELECT id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, tracking_enabled, tracking_min_confidence, tracking_labels,
+		        tracking_ignore_polygons,
 		        discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds,
 				discord_trigger_on_detection, discord_trigger_on_interval, discord_screenshot_interval_seconds,
 				discord_include_motion_clip, discord_motion_clip_seconds, discord_record_format, discord_record_duration_seconds,
@@ -62,14 +64,19 @@ func (r *Repository) Create(c Camera) error {
 	if err != nil {
 		return fmt.Errorf("encode tracking labels: %w", err)
 	}
+	trackingIgnorePolygonsJSON, err := json.Marshal(c.TrackingIgnorePolygons)
+	if err != nil {
+		return fmt.Errorf("encode tracking ignore polygons: %w", err)
+	}
 
 	_, err = r.db.Exec(
 		`INSERT INTO cameras (id, name, rtsp_url, enabled, record_enabled, detection_sample_seconds, tracking_enabled, tracking_min_confidence, tracking_labels,
+		                     tracking_ignore_polygons,
 		                     discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds,
 							 discord_trigger_on_detection, discord_trigger_on_interval, discord_screenshot_interval_seconds,
 							 discord_include_motion_clip, discord_motion_clip_seconds, discord_record_format, discord_record_duration_seconds,
 							 position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID,
 		c.Name,
 		c.RTSPURL,
@@ -79,6 +86,7 @@ func (r *Repository) Create(c Camera) error {
 		boolToInt(c.TrackingEnabled),
 		c.TrackingMinConfidence,
 		string(trackingLabelsJSON),
+		string(trackingIgnorePolygonsJSON),
 		boolToInt(c.DiscordAlertsEnabled),
 		c.DiscordWebhookURL,
 		c.DiscordMention,
@@ -102,10 +110,15 @@ func (r *Repository) Update(c Camera) error {
 	if err != nil {
 		return fmt.Errorf("encode tracking labels: %w", err)
 	}
+	trackingIgnorePolygonsJSON, err := json.Marshal(c.TrackingIgnorePolygons)
+	if err != nil {
+		return fmt.Errorf("encode tracking ignore polygons: %w", err)
+	}
 
 	res, err := r.db.Exec(
 		`UPDATE cameras
 		 SET name=?, rtsp_url=?, enabled=?, record_enabled=?, detection_sample_seconds=?, tracking_enabled=?, tracking_min_confidence=?, tracking_labels=?,
+		     tracking_ignore_polygons=?,
 		     discord_alerts_enabled=?, discord_webhook_url=?, discord_mention=?, discord_cooldown_seconds=?,
 			 discord_trigger_on_detection=?, discord_trigger_on_interval=?, discord_screenshot_interval_seconds=?,
 			 discord_include_motion_clip=?, discord_motion_clip_seconds=?, discord_record_format=?, discord_record_duration_seconds=?,
@@ -119,6 +132,7 @@ func (r *Repository) Update(c Camera) error {
 		boolToInt(c.TrackingEnabled),
 		c.TrackingMinConfidence,
 		string(trackingLabelsJSON),
+		string(trackingIgnorePolygonsJSON),
 		boolToInt(c.DiscordAlertsEnabled),
 		c.DiscordWebhookURL,
 		c.DiscordMention,
@@ -167,6 +181,7 @@ func scanCamera(s scanner) (Camera, error) {
 	var discordTriggerOnDetection, discordTriggerOnInterval int
 	var discordIncludeMotionClip int
 	var trackingLabelsRaw string
+	var trackingIgnorePolygonsRaw string
 	var trackingMinConfidence sql.NullFloat64
 	var discordWebhookURL, discordMention, discordRecordFormat sql.NullString
 	var discordCooldownSeconds sql.NullInt64
@@ -184,6 +199,7 @@ func scanCamera(s scanner) (Camera, error) {
 		&trackingEnabled,
 		&trackingMinConfidence,
 		&trackingLabelsRaw,
+		&trackingIgnorePolygonsRaw,
 		&discordAlertsEnabled,
 		&discordWebhookURL,
 		&discordMention,
@@ -222,6 +238,7 @@ func scanCamera(s scanner) (Camera, error) {
 	}
 
 	c.TrackingLabels = decodeTrackingLabels(trackingLabelsRaw)
+	c.TrackingIgnorePolygons = decodeTrackingIgnorePolygons(trackingIgnorePolygonsRaw)
 	if discordWebhookURL.Valid {
 		c.DiscordWebhookURL = strings.TrimSpace(discordWebhookURL.String)
 	}
@@ -289,4 +306,17 @@ func decodeTrackingLabels(raw string) []string {
 	// Backward-compatible fallback for any legacy comma-separated data.
 	parts := strings.Split(raw, ",")
 	return normalizeTrackingLabels(parts)
+}
+
+func decodeTrackingIgnorePolygons(raw string) [][]Point {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return [][]Point{}
+	}
+
+	polygons := [][]Point{}
+	if err := json.Unmarshal([]byte(raw), &polygons); err != nil {
+		return [][]Point{}
+	}
+	return polygons
 }

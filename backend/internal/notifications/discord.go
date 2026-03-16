@@ -23,16 +23,19 @@ import (
 const defaultMotionClipDuration = 4 * time.Second
 
 type DiscordNotifierConfig struct {
-	FFmpegBin          string
-	MotionClipDuration time.Duration
+	FFmpegBin            string
+	MotionClipDuration   time.Duration
+	OpenAIConfigProvider func() (OpenAIConfig, error)
 }
 
 type DiscordNotifier struct {
-	httpClient *http.Client
+	httpClient       *http.Client
+	openAIHTTPClient *http.Client
 
-	ffmpegBin          string
-	motionClipDuration time.Duration
-	motionClipEnabled  bool
+	ffmpegBin            string
+	motionClipDuration   time.Duration
+	motionClipEnabled    bool
+	openAIConfigProvider func() (OpenAIConfig, error)
 
 	mu       sync.Mutex
 	lastSent map[string]time.Time
@@ -46,6 +49,19 @@ type webhookAttachment struct {
 type clipCaptureOptions struct {
 	PreferredFormat string
 	Duration        time.Duration
+}
+
+type snapshotWebhookKind string
+
+const (
+	snapshotWebhookManual   snapshotWebhookKind = "manual"
+	snapshotWebhookInterval snapshotWebhookKind = "interval"
+)
+
+type OpenAIConfig struct {
+	Enabled bool
+	APIKey  string
+	Model   string
 }
 
 func NewDiscordNotifier(timeout time.Duration, cfg DiscordNotifierConfig) *DiscordNotifier {
@@ -70,11 +86,13 @@ func NewDiscordNotifier(timeout time.Duration, cfg DiscordNotifierConfig) *Disco
 	}
 
 	return &DiscordNotifier{
-		httpClient:         &http.Client{Timeout: timeout},
-		ffmpegBin:          resolvedFFmpegBin,
-		motionClipDuration: clipDuration,
-		motionClipEnabled:  motionClipEnabled,
-		lastSent:           make(map[string]time.Time),
+		httpClient:           &http.Client{Timeout: timeout},
+		openAIHTTPClient:     &http.Client{Timeout: 12 * time.Second},
+		ffmpegBin:            resolvedFFmpegBin,
+		motionClipDuration:   clipDuration,
+		motionClipEnabled:    motionClipEnabled,
+		openAIConfigProvider: cfg.OpenAIConfigProvider,
+		lastSent:             make(map[string]time.Time),
 	}
 }
 
@@ -116,6 +134,25 @@ func (n *DiscordNotifier) SendCameraSnapshot(
 	snapshot detections.Snapshot,
 	includeMotionClip bool,
 ) error {
+	return n.sendSnapshotWebhook(ctx, camera, snapshot, includeMotionClip, snapshotWebhookManual)
+}
+
+func (n *DiscordNotifier) SendIntervalSnapshot(
+	ctx context.Context,
+	camera cameras.Camera,
+	snapshot detections.Snapshot,
+	includeMotionClip bool,
+) error {
+	return n.sendSnapshotWebhook(ctx, camera, snapshot, includeMotionClip, snapshotWebhookInterval)
+}
+
+func (n *DiscordNotifier) sendSnapshotWebhook(
+	ctx context.Context,
+	camera cameras.Camera,
+	snapshot detections.Snapshot,
+	includeMotionClip bool,
+	kind snapshotWebhookKind,
+) error {
 	webhookURL := strings.TrimSpace(camera.DiscordWebhookURL)
 	if webhookURL == "" {
 		return fmt.Errorf("discord webhook URL is not configured for this camera")
@@ -142,12 +179,32 @@ func (n *DiscordNotifier) SendCameraSnapshot(
 	}
 
 	description := "Manual screenshot requested from the camera stream."
+	title := "Manual Camera Snapshot"
+	contentLine := fmt.Sprintf(
+		"Manual snapshot from **%s** at %s",
+		camera.Name,
+		snapshot.Timestamp.UTC().Format(time.RFC3339),
+	)
+	switch kind {
+	case snapshotWebhookInterval:
+		title = "Interval Camera Snapshot"
+		description = "Scheduled interval screenshot from YOLO alert settings."
+		contentLine = fmt.Sprintf(
+			"Interval snapshot from **%s** at %s",
+			camera.Name,
+			snapshot.Timestamp.UTC().Format(time.RFC3339),
+		)
+	}
 	if includeMotionClip {
-		description = "Manual screenshot requested from the camera stream. Motion clip attached when available."
+		description += " Motion clip attached when available."
+	}
+	aiShort, aiVerbose := n.describeSnapshot(ctx, camera, snapshot.Path, nil)
+	if aiVerbose != "" {
+		description = description + "\n\nAI summary: " + aiVerbose
 	}
 
 	embed := discordEmbed{
-		Title:       "Manual Camera Snapshot",
+		Title:       title,
 		Description: description,
 		Color:       5793266,
 		Timestamp:   snapshot.Timestamp.UTC().Format(time.RFC3339),
@@ -157,15 +214,16 @@ func (n *DiscordNotifier) SendCameraSnapshot(
 		embed.Image = &discordImage{URL: "attachment://" + snapshotAttachment.Name}
 	}
 
+	contentParts := []string{
+		mention,
+		contentLine,
+	}
+	if aiShort != "" {
+		contentParts = append(contentParts, "AI: "+aiShort)
+	}
+
 	payload := discordWebhookPayload{
-		Content: strings.TrimSpace(strings.Join([]string{
-			mention,
-			fmt.Sprintf(
-				"Manual snapshot from **%s** at %s",
-				camera.Name,
-				snapshot.Timestamp.UTC().Format(time.RFC3339),
-			),
-		}, "\n")),
+		Content:         strings.TrimSpace(strings.Join(contentParts, "\n")),
 		Embeds:          []discordEmbed{embed},
 		AllowedMentions: &discordAllowedMentions{Parse: allowedMentionParse(mention)},
 	}
@@ -282,6 +340,14 @@ func (n *DiscordNotifier) sendDetectionWebhook(
 		Fields:      buildFields(events),
 		Footer:      &discordFooter{Text: "RTSPanda"},
 	}
+	aiShort, aiVerbose := n.describeSnapshot(ctx, camera, snapshot.Path, events)
+	if aiVerbose != "" {
+		embed.Fields = append(embed.Fields, discordField{
+			Name:   "AI Scene Summary",
+			Value:  aiVerbose,
+			Inline: false,
+		})
+	}
 	if snapshotAttachment != nil {
 		embed.Image = &discordImage{URL: "attachment://" + snapshotAttachment.Name}
 	}
@@ -303,16 +369,21 @@ func (n *DiscordNotifier) sendDetectionWebhook(
 		}
 	}
 
+	contentParts := []string{
+		mention,
+		fmt.Sprintf(
+			"Camera **%s** detected %d object(s): %s",
+			camera.Name,
+			len(events),
+			summarizeDetections(events),
+		),
+	}
+	if aiShort != "" {
+		contentParts = append(contentParts, "AI: "+aiShort)
+	}
+
 	payload := discordWebhookPayload{
-		Content: strings.TrimSpace(strings.Join([]string{
-			mention,
-			fmt.Sprintf(
-				"Camera **%s** detected %d object(s): %s",
-				camera.Name,
-				len(events),
-				summarizeDetections(events),
-			),
-		}, "\n")),
+		Content:         strings.TrimSpace(strings.Join(contentParts, "\n")),
 		Embeds:          []discordEmbed{embed},
 		AllowedMentions: &discordAllowedMentions{Parse: allowedMentionParse(mention)},
 	}

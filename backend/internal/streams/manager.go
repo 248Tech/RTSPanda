@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"path/filepath"
 	"sync"
 	"time"
@@ -16,12 +17,23 @@ type Manager struct {
 	proc     *proc
 	disabled bool
 
-	mu       sync.Mutex
-	camMap   map[string]cameras.Camera
+	mu     sync.Mutex
+	camMap map[string]cameras.Camera
 
 	ctx      context.Context
 	cancel   context.CancelFunc
 	reloadCh chan struct{}
+
+	// statusClient queries the mediamtx internal API (factor 1 health check).
+	statusClient *http.Client
+	// hlsClient probes the HLS endpoint (factor 2 health check).
+	hlsClient *http.Client
+
+	keepaliveInterval    time.Duration
+	keepaliveReloadAfter int
+	keepaliveAPIFailures int
+	pathFailCounts       map[string]int
+	lastReloadAt         time.Time
 }
 
 // NewManager creates a Manager. If the mediamtx binary is not found, streaming
@@ -37,9 +49,14 @@ func NewManager(dataDir string) *Manager {
 	configPath := filepath.Join(dataDir, "mediamtx.yml")
 	recordDir := filepath.Join(dataDir, "recordings")
 	return &Manager{
-		proc:     &proc{binPath: binPath, configPath: configPath, recordDir: recordDir},
-		camMap:   make(map[string]cameras.Camera),
-		reloadCh: make(chan struct{}, 1),
+		proc:                 &proc{binPath: binPath, configPath: configPath, recordDir: recordDir},
+		camMap:               make(map[string]cameras.Camera),
+		reloadCh:             make(chan struct{}, 1),
+		statusClient:         &http.Client{Timeout: 3 * time.Second},
+		hlsClient:            &http.Client{Timeout: 3 * time.Second},
+		keepaliveInterval:    15 * time.Second,
+		keepaliveReloadAfter: 4,
+		pathFailCounts:       make(map[string]int),
 	}
 }
 
@@ -177,6 +194,9 @@ func (m *Manager) startProcess() (<-chan error, error) {
 
 // watchdog monitors mediamtx and handles crashes and reload requests.
 func (m *Manager) watchdog(done <-chan error) {
+	keepaliveTicker := time.NewTicker(m.keepaliveInterval)
+	defer keepaliveTicker.Stop()
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -208,6 +228,9 @@ func (m *Manager) watchdog(done <-chan error) {
 				log.Printf("streams: mediamtx reloaded")
 			}
 
+		case <-keepaliveTicker.C:
+			m.runKeepalive()
+
 		case err := <-done:
 			if m.ctx.Err() != nil {
 				return
@@ -226,6 +249,153 @@ func (m *Manager) watchdog(done <-chan error) {
 			}
 		}
 	}
+}
+
+func (m *Manager) runKeepalive() {
+	if m.disabled {
+		return
+	}
+
+	entries := m.currentEntries()
+	if len(entries) == 0 {
+		return
+	}
+
+	paths, err := listPaths(m.statusClient)
+	if err != nil {
+		m.mu.Lock()
+		m.keepaliveAPIFailures++
+		failures := m.keepaliveAPIFailures
+		shouldReload := failures >= 3 && time.Since(m.lastReloadAt) > 30*time.Second
+		if shouldReload {
+			m.lastReloadAt = time.Now()
+			m.keepaliveAPIFailures = 0
+		}
+		m.mu.Unlock()
+		log.Printf("streams: keepalive API error (%d/3): %v", failures, err)
+		if shouldReload {
+			log.Printf("streams: keepalive triggering mediamtx reload after repeated API failures")
+			m.triggerReload()
+		}
+		return
+	}
+
+	// Multi-factor health checks are done outside the mutex because they make
+	// HTTP calls. We gather results first, then update state under the lock.
+	type healthResult struct {
+		entry   cameraEntry
+		healthy bool
+	}
+	results := make([]healthResult, 0, len(entries))
+	for _, entry := range entries {
+		pathName := "camera-" + entry.ID
+		path, ok := paths[pathName]
+
+		// Factor 1: mediamtx has the path registered and ready.
+		pathOK := ok && path.Ready
+
+		// Factor 2: HLS playlist is reachable, meaning mediamtx is actively
+		// serving segments (catches zombie streams that appear ready but are hung).
+		// Only probe HLS when the path appears up — if the path is already down
+		// there is no point adding an extra HTTP round-trip.
+		hlsOK := !pathOK || checkHLSReachable(m.hlsClient, entry.ID)
+
+		results = append(results, healthResult{entry: entry, healthy: pathOK && hlsOK})
+	}
+
+	reAdd := make([]cameraEntry, 0)
+	reloadNeeded := false
+
+	m.mu.Lock()
+	m.keepaliveAPIFailures = 0
+
+	// Clean up fail counters for cameras that are no longer active.
+	activeIDs := make(map[string]struct{}, len(results))
+	for _, r := range results {
+		activeIDs[r.entry.ID] = struct{}{}
+	}
+	for cameraID := range m.pathFailCounts {
+		if _, ok := activeIDs[cameraID]; !ok {
+			delete(m.pathFailCounts, cameraID)
+		}
+	}
+
+	for _, r := range results {
+		if r.healthy {
+			m.pathFailCounts[r.entry.ID] = 0
+			continue
+		}
+
+		m.pathFailCounts[r.entry.ID]++
+		failCount := m.pathFailCounts[r.entry.ID]
+		if failCount == 2 {
+			reAdd = append(reAdd, r.entry)
+		}
+		if failCount >= m.keepaliveReloadAfter && time.Since(m.lastReloadAt) > 30*time.Second {
+			reloadNeeded = true
+			m.lastReloadAt = time.Now()
+			m.pathFailCounts[r.entry.ID] = 0
+		}
+	}
+	m.mu.Unlock()
+
+	for _, entry := range reAdd {
+		log.Printf("streams: keepalive attempting path repair camera=%s", entry.ID)
+		if err := apiAddPath(entry); err != nil {
+			log.Printf("streams: keepalive path repair failed camera=%s err=%v", entry.ID, err)
+		}
+	}
+
+	if reloadNeeded {
+		log.Printf("streams: keepalive triggering mediamtx reload after repeated unhealthy paths")
+		m.triggerReload()
+	}
+}
+
+// ResetStream removes and re-adds the mediamtx path for a single camera,
+// forcing a fresh RTSP reconnection. Falls back to a full reload if the API
+// calls fail.
+func (m *Manager) ResetStream(cameraID string) error {
+	if m.disabled {
+		return nil
+	}
+
+	m.mu.Lock()
+	cam, ok := m.camMap[cameraID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("camera %s not found or not enabled", cameraID)
+	}
+
+	log.Printf("streams: manual reset camera=%s", cameraID)
+	_ = apiRemovePath(cameraID)
+	time.Sleep(300 * time.Millisecond)
+
+	e := cameraEntry{ID: cam.ID, RTSPURL: cam.RTSPURL, RecordEnabled: cam.RecordEnabled}
+	if err := apiAddPath(e); err != nil {
+		log.Printf("streams: manual reset re-add failed camera=%s err=%v; triggering full reload", cameraID, err)
+		m.triggerReload()
+	}
+
+	m.mu.Lock()
+	m.pathFailCounts[cameraID] = 0
+	m.mu.Unlock()
+	return nil
+}
+
+// ResetAllStreams triggers a full mediamtx reload, reconnecting every camera.
+func (m *Manager) ResetAllStreams() {
+	if m.disabled {
+		return
+	}
+	log.Printf("streams: manual reset all streams")
+	m.triggerReload()
+}
+
+func (m *Manager) currentEntries() []cameraEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.entries()
 }
 
 func (m *Manager) entries() []cameraEntry {

@@ -28,7 +28,7 @@ apiAddress: 127.0.0.1:9997
 
 hls: yes
 hlsAddress: :8888
-hlsAlwaysRemux: no
+hlsAlwaysRemux: yes
 hlsSegmentCount: 7
 hlsSegmentDuration: 2s
 hlsPartDuration: 200ms
@@ -43,8 +43,7 @@ paths:
 {{- range .Cameras}}
   camera-{{.ID}}:
     source: {{.RTSPURL}}
-    sourceOnDemand: yes
-    sourceOnDemandCloseAfter: 10s
+    sourceOnDemand: no
     # Docker + some camera vendors can break UDP RTP delivery.
     # Force TCP interleaved RTP for consistent connectivity.
     rtspTransport: tcp
@@ -143,12 +142,11 @@ func waitForAPI(ctx context.Context) {
 
 func apiAddPath(e cameraEntry) error {
 	body, _ := json.Marshal(map[string]any{
-		"source":                   e.RTSPURL,
-		"sourceOnDemand":           true,
-		"sourceOnDemandCloseAfter": "10s",
-		"rtspTransport":            "tcp",
-		"rtspAnyPort":              true,
-		"record":                   e.RecordEnabled,
+		"source":         e.RTSPURL,
+		"sourceOnDemand": false,
+		"rtspTransport":  "tcp",
+		"rtspAnyPort":    true,
+		"record":         e.RecordEnabled,
 	})
 	return apiDo("POST", "/v3/config/paths/add/camera-"+e.ID, body)
 }

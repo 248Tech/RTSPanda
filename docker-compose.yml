@@ -3,14 +3,27 @@ services:
     build:
       context: .
       dockerfile: ai_worker/Dockerfile
+      args:
+        # Change YOLO_MODEL_NAME to yolov8s/yolov8m etc. to use a larger model.
+        # Larger models use more RAM and are slower on CPU — yolov8n is best for 4GB hosts.
+        YOLO_MODEL_NAME: yolov8n
     image: rtspanda-ai-worker:latest
     container_name: rtspanda-ai-worker
     environment:
-      YOLO_MODEL: yolov8n.pt
+      # YOLO_MODEL_PATH is baked into the image at /model/yolov8n.onnx
       YOLO_CONFIDENCE: "0.25"
+      YOLO_IOU: "0.45"
+      # 100 max detections is plenty; 500 wastes NMS memory
+      YOLO_MAX_DETECTIONS: "100"
     expose:
       - "8090"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # onnxruntime + numpy + model: ~150-250 MB steady state.
+          # Cap at 512 MB to prevent runaway and leave headroom on 4 GB hosts.
+          memory: 512m
 
   rtspanda:
     build:
@@ -27,10 +40,24 @@ services:
       MEDIAMTX_BIN: /usr/local/bin/mediamtx
       DETECTOR_URL: http://ai-worker:8090
       DETECTION_SAMPLE_INTERVAL_SECONDS: 30
-      DETECTION_WORKERS: 2
-      DETECTION_QUEUE_SIZE: 128
+      # 1 worker is enough — detection is I/O-bound (ffmpeg + HTTP to ai-worker).
+      # Reduces goroutine overhead on memory-constrained hosts.
+      DETECTION_WORKERS: 1
+      # Smaller queue: 32 frames × ~2 KB struct = negligible, but signals
+      # back-pressure earlier instead of silently accumulating work.
+      DETECTION_QUEUE_SIZE: 32
+      # Tell the Go runtime to keep its heap under ~200 MB.
+      # Triggers GC more aggressively instead of growing without bound.
+      # Requires Go 1.19+ (project uses Go 1.26).
+      GOMEMLIMIT: 200MiB
     volumes:
       - ./data:/data
     depends_on:
       - ai-worker
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          # Go backend + mediamtx subprocess + active HLS buffers.
+          # mediamtx with hlsSegmentCount=3 uses ~30 MB per active stream.
+          memory: 512m

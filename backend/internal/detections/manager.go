@@ -30,6 +30,7 @@ type AlertNotifier interface {
 
 type SnapshotNotifier interface {
 	SendCameraSnapshot(ctx context.Context, camera cameras.Camera, snapshot Snapshot, includeMotionClip bool) error
+	SendIntervalSnapshot(ctx context.Context, camera cameras.Camera, snapshot Snapshot, includeMotionClip bool) error
 }
 
 type Manager struct {
@@ -175,7 +176,16 @@ func (m *Manager) TriggerTestDetection(camera cameras.Camera) (Snapshot, DetectR
 	}
 	log.Printf("detections: detector request success camera=%s detections=%d", camera.ID, len(response.Detections))
 
-	filtered := m.filterDetections(camera, response.Detections)
+	filtered, stats := m.filterDetections(camera, response.Detections, response.ImageWidth, response.ImageHeight)
+	log.Printf(
+		"detections: filter summary camera=%s raw=%d kept=%d dropped_confidence=%d dropped_label=%d dropped_ignore_zone=%d",
+		camera.ID,
+		stats.raw,
+		stats.kept,
+		stats.droppedConfidence,
+		stats.droppedLabel,
+		stats.droppedIgnoreZone,
+	)
 	if len(filtered) == 0 {
 		_ = os.Remove(snap.Path)
 		return Snapshot{}, response, nil
@@ -302,7 +312,17 @@ func (m *Manager) handleJob(workerID int, job detectJob) {
 		return
 	}
 
-	filtered := m.filterDetections(job.camera, response.Detections)
+	filtered, stats := m.filterDetections(job.camera, response.Detections, response.ImageWidth, response.ImageHeight)
+	log.Printf(
+		"detections: filter summary worker=%d camera=%s raw=%d kept=%d dropped_confidence=%d dropped_label=%d dropped_ignore_zone=%d",
+		workerID,
+		job.camera.ID,
+		stats.raw,
+		stats.kept,
+		stats.droppedConfidence,
+		stats.droppedLabel,
+		stats.droppedIgnoreZone,
+	)
 	if len(filtered) == 0 {
 		_ = os.Remove(job.snapshot.Path)
 		return
@@ -356,7 +376,7 @@ func (m *Manager) maybeSendIntervalDiscordNotification(camera cameras.Camera, sn
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	if err := notifier.SendCameraSnapshot(ctx, camera, snapshot, camera.DiscordIncludeMotionClip); err != nil {
+	if err := notifier.SendIntervalSnapshot(ctx, camera, snapshot, camera.DiscordIncludeMotionClip); err != nil {
 		log.Printf("detections: interval discord alert failed camera=%s err=%v", camera.ID, err)
 		return
 	}
@@ -408,9 +428,18 @@ func (m *Manager) shouldSample(camera cameras.Camera) bool {
 	return camera.Enabled && camera.TrackingEnabled
 }
 
-func (m *Manager) filterDetections(camera cameras.Camera, detections []Detection) []Detection {
+type detectionFilterStats struct {
+	raw               int
+	kept              int
+	droppedConfidence int
+	droppedLabel      int
+	droppedIgnoreZone int
+}
+
+func (m *Manager) filterDetections(camera cameras.Camera, detections []Detection, frameWidth int, frameHeight int) ([]Detection, detectionFilterStats) {
+	stats := detectionFilterStats{raw: len(detections)}
 	if len(detections) == 0 {
-		return []Detection{}
+		return []Detection{}, stats
 	}
 
 	minConfidence := camera.TrackingMinConfidence
@@ -430,17 +459,25 @@ func (m *Manager) filterDetections(camera cameras.Camera, detections []Detection
 	filtered := make([]Detection, 0, len(detections))
 	for _, detection := range detections {
 		if detection.Confidence < minConfidence {
+			stats.droppedConfidence++
 			continue
 		}
 
 		if len(labelFilter) > 0 {
 			label := strings.ToLower(strings.TrimSpace(detection.Label))
 			if _, ok := labelFilter[label]; !ok {
+				stats.droppedLabel++
 				continue
 			}
 		}
 
+		if shouldIgnoreByPolygon(camera.TrackingIgnorePolygons, detection, frameWidth, frameHeight) {
+			stats.droppedIgnoreZone++
+			continue
+		}
+
 		filtered = append(filtered, detection)
 	}
-	return filtered
+	stats.kept = len(filtered)
+	return filtered, stats
 }

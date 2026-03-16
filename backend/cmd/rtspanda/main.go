@@ -20,7 +20,9 @@ import (
 	"github.com/rtspanda/rtspanda/internal/logs"
 	"github.com/rtspanda/rtspanda/internal/notifications"
 	"github.com/rtspanda/rtspanda/internal/recordings"
+	"github.com/rtspanda/rtspanda/internal/settings"
 	"github.com/rtspanda/rtspanda/internal/streams"
+	"github.com/rtspanda/rtspanda/internal/videostorage"
 )
 
 func main() {
@@ -49,8 +51,30 @@ func main() {
 	alertRepo := alerts.NewRepository(database.DB)
 	alertSvc := alerts.NewService(alertRepo)
 
+	// App settings service
+	settingsRepo := settings.NewRepository(database.DB)
+	settingsSvc := settings.NewService(settingsRepo)
+
 	// Recording service
 	recordingSvc := recordings.NewService(dataDir)
+
+	// External video storage sync service.
+	videoStorageSvc := videostorage.NewService(dataDir, func() (videostorage.Config, error) {
+		cfg, err := settingsSvc.GetVideoStorageConfig()
+		if err != nil {
+			return videostorage.Config{}, err
+		}
+		return videostorage.Config{
+			Enabled:      cfg.Enabled,
+			Provider:     cfg.Provider,
+			LocalPath:    cfg.LocalPath,
+			RemoteName:   cfg.RemoteName,
+			RemotePath:   cfg.RemotePath,
+			SyncInterval: time.Duration(cfg.SyncIntervalSec) * time.Second,
+			MinFileAge:   time.Duration(cfg.MinFileAgeSec) * time.Second,
+			RcloneBin:    envOrDefault("RCLONE_BIN", "rclone"),
+		}, nil
+	})
 
 	// Detection event repository
 	detectionRepo := detections.NewRepository(database.DB)
@@ -58,6 +82,17 @@ func main() {
 	discordNotifier := notifications.NewDiscordNotifier(15*time.Second, notifications.DiscordNotifierConfig{
 		FFmpegBin:          ffmpegBin,
 		MotionClipDuration: time.Duration(envIntOrDefault("DISCORD_MOTION_CLIP_SECONDS", 4)) * time.Second,
+		OpenAIConfigProvider: func() (notifications.OpenAIConfig, error) {
+			cfg, err := settingsSvc.GetOpenAIConfig()
+			if err != nil {
+				return notifications.OpenAIConfig{}, err
+			}
+			return notifications.OpenAIConfig{
+				Enabled: cfg.Enabled,
+				APIKey:  cfg.APIKey,
+				Model:   cfg.Model,
+			}, nil
+		},
 	})
 
 	// Log buffer for Settings → Logs page (tee log output)
@@ -92,8 +127,10 @@ func main() {
 		log.Fatalf("start detections: %v", err)
 	}
 
+	videoStorageSvc.Start(ctx)
+
 	// HTTP server
-	router := api.NewRouter(cameraSvc, streamMgr, detectionMgr, discordNotifier, alertSvc, recordingSvc, logBuf)
+	router := api.NewRouter(cameraSvc, streamMgr, settingsSvc, detectionMgr, discordNotifier, alertSvc, recordingSvc, logBuf)
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),
 		Handler:      router,

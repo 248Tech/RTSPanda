@@ -2,9 +2,7 @@ package streams
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
-	"time"
 )
 
 // StreamStatus represents the live state of a camera's RTSP stream.
@@ -14,6 +12,9 @@ const (
 	StatusOnline     StreamStatus = "online"
 	StatusOffline    StreamStatus = "offline"
 	StatusConnecting StreamStatus = "connecting"
+
+	// hlsBase is the mediamtx HLS endpoint used for liveness probes.
+	hlsBase = "http://127.0.0.1:8888"
 )
 
 type pathsResponse struct {
@@ -23,6 +24,11 @@ type pathsResponse struct {
 	} `json:"items"`
 }
 
+type pathState struct {
+	Name  string
+	Ready bool
+}
+
 // StreamStatus returns the current streaming status for a given camera ID by
 // querying the mediamtx internal API.
 func (m *Manager) StreamStatus(cameraID string) StreamStatus {
@@ -30,30 +36,49 @@ func (m *Manager) StreamStatus(cameraID string) StreamStatus {
 		return StatusOffline
 	}
 
-	client := &http.Client{Timeout: 3 * time.Second}
+	paths, err := listPaths(m.statusClient)
+	if err != nil {
+		return StatusOffline
+	}
+
+	target := "camera-" + cameraID
+	item, ok := paths[target]
+	if !ok {
+		return StatusOffline
+	}
+	if item.Ready {
+		return StatusOnline
+	}
+	return StatusConnecting
+}
+
+func listPaths(client *http.Client) (map[string]pathState, error) {
 	resp, err := client.Get(apiBase + "/v3/paths/list")
 	if err != nil {
-		log.Printf("streams: camera %s: status=offline (mediamtx API unreachable: %v)", cameraID, err)
-		return StatusOffline
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var data pathsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		log.Printf("streams: camera %s: status=offline (mediamtx API response invalid: %v)", cameraID, err)
-		return StatusOffline
+		return nil, err
 	}
 
-	target := "camera-" + cameraID
+	result := make(map[string]pathState, len(data.Items))
 	for _, item := range data.Items {
-		if item.Name == target {
-			if item.Ready {
-				return StatusOnline
-			}
-			log.Printf("streams: camera %s: status=connecting (path %s exists but stream not ready yet)", cameraID, target)
-			return StatusConnecting
-		}
+		result[item.Name] = pathState{Name: item.Name, Ready: item.Ready}
 	}
-	log.Printf("streams: camera %s: status=offline (path %s not in mediamtx — add/update may have failed or mediamtx not reloaded)", cameraID, target)
-	return StatusOffline
+	return result, nil
+}
+
+// checkHLSReachable probes the HLS playlist for a camera to verify mediamtx
+// is actively serving segments (not just registering the path as ready).
+// This is the second factor in the multi-factor health check.
+func checkHLSReachable(client *http.Client, cameraID string) bool {
+	resp, err := client.Get(hlsBase + "/camera-" + cameraID + "/index.m3u8")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }

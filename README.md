@@ -9,7 +9,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-2ea44f)](https://github.com/248Tech/RTSPanda)
 
-RTSPanda is a small app you run on your PC or server. You add your camera URLs, open a browser, and watch live—no account, no subscription, no data sent to the cloud. You can also record, take screenshots, run per-camera YOLOv8 tracking, view live overlays + event history, and send rich Discord alerts.
+RTSPanda is a small app you run on your PC or server. You add your camera URLs, open a browser, and watch live—no account, no subscription, no data sent to the cloud. You can also record, take screenshots, run per-camera YOLOv8 tracking, view live overlays + event history, and send rich Discord alerts powered by YOLO or Frigate.
 
 ---
 
@@ -19,16 +19,21 @@ RTSPanda is a small app you run on your PC or server. You add your camera URLs, 
 
 ---
 
-## What is new (v0.0.4)
+## What is new (v0.0.5)
 
-- **YOLO UI Polishing:** per-camera ignore-zone polygon editor, overlay support, and improved YOLO camera setting flows.
-- **Security Updates:** stronger backend input validation for ignore zones and integration settings, plus centralized OpenAI key/model handling in app settings.
-- **UI Updates:** multi-camera mode (up to 4 streams), Integrations tab, dashboard network reset action, and bundled Chrome PiP extension install flow.
-- **Reliability Updates:** ONNX Runtime migration for lower AI-worker memory, stream keepalive health checks, and stream reset APIs.
-- **Connectivity:** external recording sync to Local Server, Dropbox, Google Drive, OneDrive, and Proton Drive.
+- **Frigate Detection Provider:** choose YOLOv8 or Frigate per camera when configuring Discord detection alerts.
+- **Frigate Webhook Ingest:** new backend endpoint `POST /api/v1/frigate/events` routes Frigate events to matching cameras configured with provider `frigate`.
+- **Frigate Snapshot Attachments:** optional `FRIGATE_BASE_URL` support to fetch Frigate event snapshots and include them in Discord alerts.
+- **Alert Provider Controls:** new camera fields `discord_detection_provider` and `frigate_camera_name` added across DB migration, backend model/service/repository, and frontend forms.
+- **Guides Page:** new in-app **Guides** route with:
+  - Lorex NVR port-forward workflow
+  - Tailscale setup workflow
+  - Lorex RTSP address retrieval workflow
+- **Support the Developer UI:** donation links to [248tech.com/donate](https://248tech.com/donate) added in sidebar and guides page.
+- **Docs Refresh:** README and user guide updated for Frigate setup, provider-based alert configuration, and new API/env options.
 
-Release details: [RELEASE_NOTES_v0.0.4.md](RELEASE_NOTES_v0.0.4.md)
-Diff: [v0.0.3...v0.0.4](https://github.com/248Tech/RTSPanda/compare/v0.0.3...v0.0.4)
+Release details: [RELEASE_NOTES_v0.0.5.md](RELEASE_NOTES_v0.0.5.md)
+Diff: [v0.0.4...v0.0.5](https://github.com/248Tech/RTSPanda/compare/v0.0.4...v0.0.5)
 
 ---
 
@@ -73,6 +78,8 @@ cd RTSPanda
 **5. Open your browser**
 
 Go to **http://localhost:8080**. Click **Settings** → **Cameras** → **Add Camera**, enter a name and your RTSP URL, then go back to the dashboard and click the camera to watch.
+
+Need vendor setup help? Open the **Guides** page in the sidebar for Lorex RTSP lookup, Lorex port-forwarding notes, and Tailscale setup.
 
 ---
 
@@ -248,6 +255,7 @@ You can change behaviour with environment variables (no config file needed):
 | `RCLONE_BIN` | `rclone` | rclone binary path for cloud video storage sync (Dropbox/Drive/OneDrive/Proton Drive). |
 | `FFMPEG_BIN` | `ffmpeg` | FFmpeg path for frame capture used by object detection sampling. |
 | `DETECTOR_URL` | `http://127.0.0.1:8090` | URL of the async detector worker (`/detect`, `/health`). |
+| `FRIGATE_BASE_URL` | unset | Optional Frigate base URL (example `http://frigate:5000`) used to fetch event snapshots for Frigate-powered Discord alerts. |
 | `DETECTION_SAMPLE_INTERVAL_SECONDS` | `30` | Global sample interval for camera frame capture. |
 | `DETECTION_WORKERS` | `2` | Concurrent async detection worker requests from backend queue. |
 | `DETECTION_QUEUE_SIZE` | `128` | Max queued snapshots waiting for detector service. |
@@ -304,6 +312,7 @@ Everything the web UI does can be done over HTTP. Base URL: **http://localhost:8
 | Trigger test detection | `POST` | `/cameras/{id}/detections/test` |
 | Send screenshot to Discord | `POST` | `/cameras/{id}/discord/screenshot` |
 | Send recording to Discord | `POST` | `/cameras/{id}/discord/record` |
+| Ingest Frigate detection event | `POST` | `/frigate/events` |
 | List recent detection events | `GET` | `/detection-events` |
 | Get snapshot for event | `GET` | `/detection-events/{id}/snapshot` |
 | Health check | `GET` | `/health` |

@@ -8,6 +8,13 @@ import (
 var ErrNotFound = errors.New("camera not found")
 var ErrInvalid = errors.New("invalid input")
 
+type DiscordDetectionProvider string
+
+const (
+	DiscordDetectionProviderYOLO    DiscordDetectionProvider = "yolo"
+	DiscordDetectionProviderFrigate DiscordDetectionProvider = "frigate"
+)
+
 type Camera struct {
 	ID                               string    `json:"id"`
 	Name                             string    `json:"name"`
@@ -30,6 +37,8 @@ type Camera struct {
 	DiscordMotionClipSeconds         int       `json:"discord_motion_clip_seconds"`
 	DiscordRecordFormat              string    `json:"discord_record_format"`
 	DiscordRecordDurationSeconds     int       `json:"discord_record_duration_seconds"`
+	DiscordDetectionProvider         string    `json:"discord_detection_provider"`
+	FrigateCameraName                string    `json:"frigate_camera_name"`
 	Position                         int       `json:"position"`
 	CreatedAt                        time.Time `json:"created_at"`
 	UpdatedAt                        time.Time `json:"updated_at"`
@@ -61,6 +70,8 @@ type CreateInput struct {
 	DiscordMotionClipSeconds         *int      `json:"discord_motion_clip_seconds"`
 	DiscordRecordFormat              *string   `json:"discord_record_format"`
 	DiscordRecordDurationSeconds     *int      `json:"discord_record_duration_seconds"`
+	DiscordDetectionProvider         *string   `json:"discord_detection_provider"`
+	FrigateCameraName                *string   `json:"frigate_camera_name"`
 }
 
 type UpdateInput struct {
@@ -84,5 +95,7 @@ type UpdateInput struct {
 	DiscordMotionClipSeconds         *int       `json:"discord_motion_clip_seconds"`
 	DiscordRecordFormat              *string    `json:"discord_record_format"`
 	DiscordRecordDurationSeconds     *int       `json:"discord_record_duration_seconds"`
+	DiscordDetectionProvider         *string    `json:"discord_detection_provider"`
+	FrigateCameraName                *string    `json:"frigate_camera_name"`
 	Position                         *int       `json:"position"`
 }

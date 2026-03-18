@@ -89,6 +89,7 @@ func NewRouter(cameraSvc CameraService, streamMgr StreamManager, settingsSvc Set
 	mux.HandleFunc("POST /api/v1/cameras/{id}/discord/record", s.handleSendDiscordRecording)
 	mux.HandleFunc("GET /api/v1/detection-events", s.handleListDetectionEvents)
 	mux.HandleFunc("GET /api/v1/detection-events/{id}/snapshot", s.handleGetDetectionSnapshot)
+	mux.HandleFunc("POST /api/v1/frigate/events", s.handleFrigateEvent)
 
 	// Recordings (per-camera)
 	mux.HandleFunc("GET /api/v1/cameras/{id}/recordings", s.handleListRecordings)

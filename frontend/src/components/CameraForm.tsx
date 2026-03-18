@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { Camera, CreateCameraInput } from '../api/cameras'
+import type { Camera, CreateCameraInput, DiscordDetectionProvider } from '../api/cameras'
 
 export interface CameraFormValues {
   name: string
@@ -21,6 +21,8 @@ export interface CameraFormValues {
   discord_motion_clip_seconds: string
   discord_record_format: 'webp' | 'webm' | 'gif'
   discord_record_duration_seconds: string
+  discord_detection_provider: DiscordDetectionProvider
+  frigate_camera_name: string
 }
 
 export interface CameraFormProps {
@@ -54,6 +56,8 @@ const defaultValues: CameraFormValues = {
   discord_motion_clip_seconds: '4',
   discord_record_format: 'webp',
   discord_record_duration_seconds: '60',
+  discord_detection_provider: 'yolo',
+  frigate_camera_name: '',
 }
 
 function toValues(camera?: Camera | null): CameraFormValues {
@@ -78,6 +82,8 @@ function toValues(camera?: Camera | null): CameraFormValues {
     discord_motion_clip_seconds: String(camera.discord_motion_clip_seconds ?? 4),
     discord_record_format: camera.discord_record_format ?? 'webp',
     discord_record_duration_seconds: String(camera.discord_record_duration_seconds ?? 60),
+    discord_detection_provider: camera.discord_detection_provider ?? 'yolo',
+    frigate_camera_name: camera.frigate_camera_name ?? '',
   }
 }
 
@@ -200,6 +206,8 @@ export function CameraForm({
       discord_record_format: values.discord_record_format,
       discord_record_duration_seconds:
         Number.isInteger(discordRecordDurationSeconds) && discordRecordDurationSeconds > 0 ? discordRecordDurationSeconds : undefined,
+      discord_detection_provider: values.discord_detection_provider,
+      frigate_camera_name: values.frigate_camera_name.trim(),
     })
   }
 
@@ -446,6 +454,60 @@ export function CameraForm({
               </div>
             </div>
 
+            <div className="space-y-2 rounded-lg border border-border bg-base p-3">
+              <p className="text-sm font-medium text-text-primary">Detection source</p>
+              <label className="flex items-start gap-2 text-sm text-text-primary">
+                <input
+                  type="radio"
+                  name="discord-detection-provider"
+                  value="yolo"
+                  checked={values.discord_detection_provider === 'yolo'}
+                  onChange={() => setField('discord_detection_provider', 'yolo')}
+                  className="mt-0.5 h-4 w-4 border-border bg-base text-accent focus:ring-accent"
+                />
+                <span>
+                  RTSPanda YOLOv8
+                  <span className="block text-xs text-text-muted">
+                    Uses built-in detector samples from this camera stream.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-text-primary">
+                <input
+                  type="radio"
+                  name="discord-detection-provider"
+                  value="frigate"
+                  checked={values.discord_detection_provider === 'frigate'}
+                  onChange={() => setField('discord_detection_provider', 'frigate')}
+                  className="mt-0.5 h-4 w-4 border-border bg-base text-accent focus:ring-accent"
+                />
+                <span>
+                  Frigate
+                  <span className="block text-xs text-text-muted">
+                    Receives detections from <code className="rounded bg-card px-1">POST /api/v1/frigate/events</code>.
+                  </span>
+                </span>
+              </label>
+              {values.discord_detection_provider === 'frigate' && (
+                <div>
+                  <label htmlFor="frigate-camera-name" className="mb-1 block text-sm text-text-primary">
+                    Frigate camera name (optional)
+                  </label>
+                  <input
+                    id="frigate-camera-name"
+                    type="text"
+                    value={values.frigate_camera_name}
+                    onChange={(e) => setField('frigate_camera_name', e.target.value)}
+                    placeholder="front_door"
+                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                  <p className="mt-1 text-xs text-text-muted">
+                    Leave blank to match this RTSPanda camera by name.
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="flex items-center gap-2 text-sm text-text-primary">
                 <input
@@ -454,7 +516,9 @@ export function CameraForm({
                   onChange={(e) => setField('discord_trigger_on_detection', e.target.checked)}
                   className="h-4 w-4 rounded border-border bg-base text-accent focus:ring-accent"
                 />
-                Trigger on YOLO detections
+                {values.discord_detection_provider === 'frigate'
+                  ? 'Trigger on Frigate detections'
+                  : 'Trigger on YOLO detections'}
               </label>
               <label className="flex items-center gap-2 text-sm text-text-primary">
                 <input

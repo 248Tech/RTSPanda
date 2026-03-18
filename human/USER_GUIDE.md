@@ -1,6 +1,6 @@
 # RTSPanda — User Guide
 
-> Start to finish: installation, first camera, live streaming, recording, screenshots, YOLOv8 tracking, and Discord alerts.
+> Start to finish: installation, first camera, live streaming, recording, screenshots, YOLOv8 tracking, Frigate integration, and Discord alerts.
 
 ---
 
@@ -24,7 +24,7 @@
    - [Enabling recording](#enabling-recording)
    - [Browsing and downloading recordings](#browsing-and-downloading-recordings)
    - [Deleting recordings](#deleting-recordings)
-9. [YOLO Tracking and Discord Alerts](#9-yolo-tracking-and-discord-alerts)
+9. [Detection and Discord Alerts](#9-detection-and-discord-alerts)
    - [YOLOv8 tracking per camera](#yolov8-tracking-per-camera)
    - [Live overlays in camera view](#live-overlays-in-camera-view)
    - [Detection event history panel](#detection-event-history-panel)
@@ -58,7 +58,7 @@ It ships as a **single file** that contains the entire web server and user inter
 - Runs YOLOv8 detection per camera with configurable thresholds and label filters
 - Draws live bounding-box overlays on video playback
 - Stores detection history with snapshot previews
-- Sends rich Discord webhook alerts with snapshot/clip media and manual push actions (optional)
+- Sends rich Discord webhook alerts with snapshot/clip media and manual push actions (optional), using YOLO or Frigate as the detection source
 
 **What it is not:**
 
@@ -186,6 +186,8 @@ RTSPanda listening on :8080 (data: ./data)
 
 Open [http://localhost:8080](http://localhost:8080) in your browser. The dashboard loads immediately.
 
+Need vendor-specific setup help? Open the **Guides** page in the sidebar for Lorex RTSP steps, Lorex port-forwarding notes, and Tailscale remote-access setup.
+
 > **Data storage:** RTSPanda creates a `data/` folder next to the binary. This holds the SQLite database (`rtspanda.db`) and all recordings. You can change the location with the `DATA_DIR` environment variable (see [Environment variables](#13-environment-variables)).
 
 ---
@@ -309,7 +311,7 @@ In the Recordings panel, click the **trash icon** next to any recording. You wil
 
 ---
 
-## 9. YOLO Tracking and Discord Alerts
+## 9. Detection and Discord Alerts
 
 ### YOLOv8 tracking per camera
 
@@ -352,7 +354,9 @@ Fields:
 - **Webhook URL** (required when enabled)
 - **Mention** (optional, e.g. `@here` or `<@123...>`)
 - **Cooldown (seconds)** to avoid spam
-- **Trigger on YOLO detections**
+- **Detection source** (`RTSPanda YOLOv8` or `Frigate`)
+- **Frigate camera name** (optional override when Frigate source is selected)
+- **Trigger on detections** (uses your selected source)
 - **Trigger on interval screenshots**
 - **Screenshot interval (seconds)** for interval trigger mode
 - **Include motion clip on detection alerts**
@@ -360,7 +364,13 @@ Fields:
 - **Manual record format** (`webp`, `webm`, or `gif`)
 - **Manual record seconds**
 
-When active, detection batches send a Discord embed with:
+If you choose **Frigate**, configure Frigate to POST events to:
+
+- `POST /api/v1/frigate/events`
+
+Optional: set `FRIGATE_BASE_URL` in RTSPanda so snapshot media can be fetched and attached to Discord alerts automatically.
+
+When active, detection batches (YOLO or Frigate) send a Discord embed with:
 
 - Camera name and detection summary
 - Confidence and bbox details
@@ -378,8 +388,8 @@ Both buttons require the camera-level Discord webhook URL to be configured.
 
 ### Legacy alert rules and webhooks (advanced)
 
-The **YOLO Alerts** tab keeps legacy alert-rule APIs for compatibility with external systems.
-Primary alerting should now be configured in camera-level YOLO + Discord settings.
+The **Alert Rules** tab keeps legacy alert-rule APIs for compatibility with external systems.
+Primary alerting should now be configured in camera-level provider-based Discord settings.
 If you already have an external workflow, you can keep using:
 
 - `POST /api/v1/alerts/{id}/events`
@@ -521,6 +531,7 @@ Set these before running the binary to customise behaviour. No config file is ne
 | `MEDIAMTX_BIN` | auto | Explicit path to mediamtx binary |
 | `FFMPEG_BIN` | `ffmpeg` | FFmpeg binary used for detection frame capture |
 | `DETECTOR_URL` | `http://127.0.0.1:8090` | AI worker base URL |
+| `FRIGATE_BASE_URL` | unset | Optional Frigate URL used to download snapshots when Frigate alerts are enabled |
 | `DETECTION_SAMPLE_INTERVAL_SECONDS` | `30` | Global detection sample interval fallback |
 | `DETECTION_WORKERS` | `2` | Detection worker concurrency |
 | `DETECTION_QUEUE_SIZE` | `128` | In-memory detection queue capacity |
@@ -778,7 +789,9 @@ GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
   "discord_include_motion_clip": true,
   "discord_motion_clip_seconds": 4,
   "discord_record_format": "webp",
-  "discord_record_duration_seconds": 60
+  "discord_record_duration_seconds": 60,
+  "discord_detection_provider": "yolo",
+  "frigate_camera_name": ""
 }
 ```
 
@@ -805,6 +818,8 @@ GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
   "discord_motion_clip_seconds": 4,
   "discord_record_format": "webp",
   "discord_record_duration_seconds": 60,
+  "discord_detection_provider": "yolo",
+  "frigate_camera_name": "",
   "position": 0,
   "created_at": "2025-01-01T00:00:00Z",
   "updated_at": "2025-01-01T00:00:00Z"
@@ -827,6 +842,7 @@ POST   /api/v1/cameras/{id}/detections/test-frame
 POST   /api/v1/cameras/{id}/detections/test
 POST   /api/v1/cameras/{id}/discord/screenshot
 POST   /api/v1/cameras/{id}/discord/record
+POST   /api/v1/frigate/events
 GET    /api/v1/detection-events?limit=100&camera_id={id}
 GET    /api/v1/detection-events/{id}/snapshot
 ```

@@ -23,6 +23,7 @@ func (r *Repository) List() ([]Camera, error) {
 		        discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds,
 				discord_trigger_on_detection, discord_trigger_on_interval, discord_screenshot_interval_seconds,
 				discord_include_motion_clip, discord_motion_clip_seconds, discord_record_format, discord_record_duration_seconds,
+				discord_detection_provider, frigate_camera_name,
 				position, created_at, updated_at
 		 FROM cameras ORDER BY position, created_at`,
 	)
@@ -49,6 +50,7 @@ func (r *Repository) GetByID(id string) (Camera, error) {
 		        discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds,
 				discord_trigger_on_detection, discord_trigger_on_interval, discord_screenshot_interval_seconds,
 				discord_include_motion_clip, discord_motion_clip_seconds, discord_record_format, discord_record_duration_seconds,
+				discord_detection_provider, frigate_camera_name,
 				position, created_at, updated_at
 		 FROM cameras WHERE id = ?`, id,
 	)
@@ -75,8 +77,9 @@ func (r *Repository) Create(c Camera) error {
 		                     discord_alerts_enabled, discord_webhook_url, discord_mention, discord_cooldown_seconds,
 							 discord_trigger_on_detection, discord_trigger_on_interval, discord_screenshot_interval_seconds,
 							 discord_include_motion_clip, discord_motion_clip_seconds, discord_record_format, discord_record_duration_seconds,
+							 discord_detection_provider, frigate_camera_name,
 							 position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		c.ID,
 		c.Name,
 		c.RTSPURL,
@@ -98,6 +101,8 @@ func (r *Repository) Create(c Camera) error {
 		c.DiscordMotionClipSeconds,
 		c.DiscordRecordFormat,
 		c.DiscordRecordDurationSeconds,
+		c.DiscordDetectionProvider,
+		c.FrigateCameraName,
 		c.Position,
 		c.CreatedAt,
 		c.UpdatedAt,
@@ -122,6 +127,7 @@ func (r *Repository) Update(c Camera) error {
 		     discord_alerts_enabled=?, discord_webhook_url=?, discord_mention=?, discord_cooldown_seconds=?,
 			 discord_trigger_on_detection=?, discord_trigger_on_interval=?, discord_screenshot_interval_seconds=?,
 			 discord_include_motion_clip=?, discord_motion_clip_seconds=?, discord_record_format=?, discord_record_duration_seconds=?,
+			 discord_detection_provider=?, frigate_camera_name=?,
 			 position=?, updated_at=?
 		 WHERE id=?`,
 		c.Name,
@@ -144,6 +150,8 @@ func (r *Repository) Update(c Camera) error {
 		c.DiscordMotionClipSeconds,
 		c.DiscordRecordFormat,
 		c.DiscordRecordDurationSeconds,
+		c.DiscordDetectionProvider,
+		c.FrigateCameraName,
 		c.Position,
 		time.Now(),
 		c.ID,
@@ -188,6 +196,8 @@ func scanCamera(s scanner) (Camera, error) {
 	var discordScreenshotIntervalSeconds sql.NullInt64
 	var discordMotionClipSeconds sql.NullInt64
 	var discordRecordDurationSeconds sql.NullInt64
+	var discordDetectionProvider sql.NullString
+	var frigateCameraName sql.NullString
 	var sampleSeconds sql.NullInt64
 	err := s.Scan(
 		&c.ID,
@@ -211,6 +221,8 @@ func scanCamera(s scanner) (Camera, error) {
 		&discordMotionClipSeconds,
 		&discordRecordFormat,
 		&discordRecordDurationSeconds,
+		&discordDetectionProvider,
+		&frigateCameraName,
 		&c.Position,
 		&c.CreatedAt,
 		&c.UpdatedAt,
@@ -274,6 +286,19 @@ func scanCamera(s scanner) (Camera, error) {
 	}
 	if c.DiscordRecordFormat == "" {
 		c.DiscordRecordFormat = "webp"
+	}
+	if discordDetectionProvider.Valid {
+		c.DiscordDetectionProvider = strings.ToLower(strings.TrimSpace(discordDetectionProvider.String))
+	}
+	if c.DiscordDetectionProvider == "" {
+		c.DiscordDetectionProvider = string(DiscordDetectionProviderYOLO)
+	}
+	if c.DiscordDetectionProvider != string(DiscordDetectionProviderYOLO) &&
+		c.DiscordDetectionProvider != string(DiscordDetectionProviderFrigate) {
+		c.DiscordDetectionProvider = string(DiscordDetectionProviderYOLO)
+	}
+	if frigateCameraName.Valid {
+		c.FrigateCameraName = strings.TrimSpace(frigateCameraName.String)
 	}
 	return c, nil
 }

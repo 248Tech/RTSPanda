@@ -4,6 +4,7 @@ export interface IgnorePolygonPoint {
 }
 
 export type IgnorePolygon = IgnorePolygonPoint[]
+export type DiscordDetectionProvider = 'yolo' | 'frigate'
 
 export interface Camera {
   id: string
@@ -27,6 +28,8 @@ export interface Camera {
   discord_motion_clip_seconds: number
   discord_record_format: 'webp' | 'webm' | 'gif'
   discord_record_duration_seconds: number
+  discord_detection_provider: DiscordDetectionProvider
+  frigate_camera_name: string
   position: number
   created_at: string
   updated_at: string
@@ -53,6 +56,8 @@ export interface CreateCameraInput {
   discord_motion_clip_seconds?: number
   discord_record_format?: 'webp' | 'webm' | 'gif'
   discord_record_duration_seconds?: number
+  discord_detection_provider?: DiscordDetectionProvider
+  frigate_camera_name?: string
 }
 
 export interface UpdateCameraInput {
@@ -76,6 +81,8 @@ export interface UpdateCameraInput {
   discord_motion_clip_seconds?: number
   discord_record_format?: 'webp' | 'webm' | 'gif'
   discord_record_duration_seconds?: number
+  discord_detection_provider?: DiscordDetectionProvider
+  frigate_camera_name?: string
   position?: number
 }
 

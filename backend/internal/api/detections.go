@@ -29,6 +29,7 @@ type DetectionService interface {
 type DiscordNotificationService interface {
 	SendCameraSnapshot(ctx context.Context, camera cameras.Camera, snapshot detections.Snapshot, includeMotionClip bool) error
 	SendCameraRecording(ctx context.Context, camera cameras.Camera, durationSeconds int, format string) error
+	NotifyExternalDetectionEvents(ctx context.Context, camera cameras.Camera, snapshot detections.Snapshot, events []detections.Event, sourceLabel string) error
 }
 
 // handleDetectionHealth: GET /api/v1/detections/health

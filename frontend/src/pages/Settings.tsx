@@ -275,7 +275,7 @@ function AlertsPanel({ cameras }: { cameras: Camera[] }) {
         </svg>
         <div className="text-text-muted">
           <span className="font-medium text-text-primary">Legacy alert rules.</span>{' '}
-          Primary alerting is now YOLO + Discord in camera settings. This endpoint remains for compatibility:{' '}
+          Primary alerting is now provider-based Discord alerts (YOLO or Frigate) in camera settings. This endpoint remains for compatibility:{' '}
           <code className="rounded bg-card px-1 font-mono text-xs text-accent">
             POST /api/v1/alerts/&#123;id&#125;/events
           </code>
@@ -854,6 +854,8 @@ export default function Settings() {
             discord_motion_clip_seconds: values.discord_motion_clip_seconds,
             discord_record_format: values.discord_record_format,
             discord_record_duration_seconds: values.discord_record_duration_seconds,
+            discord_detection_provider: values.discord_detection_provider,
+            frigate_camera_name: values.frigate_camera_name,
           })
           setCameras((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
         } else {
@@ -916,7 +918,7 @@ export default function Settings() {
                   : 'text-text-muted hover:bg-card-hover hover:text-text-primary'
               }`}
             >
-              {t === 'alerts' ? 'YOLO Alerts' : t === 'integrations' ? 'Integrations' : t === 'logs' ? 'Logs' : 'Cameras'}
+              {t === 'alerts' ? 'Alert Rules' : t === 'integrations' ? 'Integrations' : t === 'logs' ? 'Logs' : 'Cameras'}
             </button>
           ))}
         </nav>
@@ -975,7 +977,7 @@ export default function Settings() {
                           <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
                             <path d="M20.317 4.369A19.791 19.791 0 0015.41 3a13.595 13.595 0 00-.63 1.295 18.256 18.256 0 00-5.557 0A13.595 13.595 0 008.593 3a19.736 19.736 0 00-4.908 1.37C.533 9.066-.32 13.64.099 18.146A19.9 19.9 0 006.13 21a14.487 14.487 0 001.292-2.116 12.885 12.885 0 01-2.035-.97c.171-.125.338-.257.5-.396a14.235 14.235 0 0012.23 0c.164.139.33.271.5.396a12.85 12.85 0 01-2.04.972A14.43 14.43 0 0017.87 21a19.886 19.886 0 006.03-2.854c.5-5.228-.837-9.76-3.583-13.777zM8.02 15.332c-1.184 0-2.155-1.085-2.155-2.418 0-1.333.952-2.418 2.155-2.418 1.206 0 2.178 1.105 2.156 2.418 0 1.333-.95 2.418-2.156 2.418zm7.96 0c-1.184 0-2.156-1.085-2.156-2.418 0-1.333.952-2.418 2.156-2.418 1.205 0 2.177 1.105 2.155 2.418 0 1.333-.95 2.418-2.155 2.418z" />
                           </svg>
-                          Discord alerts
+                          {camera.discord_detection_provider === 'frigate' ? 'Discord + Frigate' : 'Discord + YOLO'}
                         </span>
                       )}
                     </div>
@@ -995,7 +997,7 @@ export default function Settings() {
         </>
       )}
 
-      {/* YOLO Alerts tab */}
+      {/* Alert rules tab */}
       {tab === 'alerts' && <AlertsPanel cameras={cameras} />}
 
       {/* Integrations tab */}

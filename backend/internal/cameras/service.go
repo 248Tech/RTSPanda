@@ -137,6 +137,20 @@ func (s *Service) Create(input CreateInput) (Camera, error) {
 		return Camera{}, fmt.Errorf("%w: discord_record_duration_seconds must be > 0", ErrInvalid)
 	}
 
+	discordDetectionProvider := string(DiscordDetectionProviderYOLO)
+	if input.DiscordDetectionProvider != nil {
+		normalizedProvider, err := normalizeDiscordDetectionProvider(*input.DiscordDetectionProvider)
+		if err != nil {
+			return Camera{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		discordDetectionProvider = normalizedProvider
+	}
+
+	frigateCameraName := ""
+	if input.FrigateCameraName != nil {
+		frigateCameraName = strings.TrimSpace(*input.FrigateCameraName)
+	}
+
 	if discordAlertsEnabled && discordWebhookURL == "" {
 		return Camera{}, fmt.Errorf("%w: discord_webhook_url is required when discord alerts are enabled", ErrInvalid)
 	}
@@ -169,6 +183,8 @@ func (s *Service) Create(input CreateInput) (Camera, error) {
 		DiscordMotionClipSeconds:         discordMotionClipSeconds,
 		DiscordRecordFormat:              normalizedRecordFormat,
 		DiscordRecordDurationSeconds:     discordRecordDurationSeconds,
+		DiscordDetectionProvider:         discordDetectionProvider,
+		FrigateCameraName:                frigateCameraName,
 		Position:                         0,
 		CreatedAt:                        now,
 		UpdatedAt:                        now,
@@ -286,6 +302,16 @@ func (s *Service) Update(id string, input UpdateInput) (Camera, error) {
 		}
 		c.DiscordRecordDurationSeconds = *input.DiscordRecordDurationSeconds
 	}
+	if input.DiscordDetectionProvider != nil {
+		normalizedProvider, err := normalizeDiscordDetectionProvider(*input.DiscordDetectionProvider)
+		if err != nil {
+			return Camera{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+		c.DiscordDetectionProvider = normalizedProvider
+	}
+	if input.FrigateCameraName != nil {
+		c.FrigateCameraName = strings.TrimSpace(*input.FrigateCameraName)
+	}
 
 	if c.DiscordAlertsEnabled && strings.TrimSpace(c.DiscordWebhookURL) == "" {
 		return Camera{}, fmt.Errorf("%w: discord_webhook_url is required when discord alerts are enabled", ErrInvalid)
@@ -390,6 +416,19 @@ func normalizeDiscordRecordFormat(raw string) (string, error) {
 		return format, nil
 	default:
 		return "", fmt.Errorf("discord_record_format must be webp, webm, or gif")
+	}
+}
+
+func normalizeDiscordDetectionProvider(raw string) (string, error) {
+	provider := strings.ToLower(strings.TrimSpace(raw))
+	if provider == "" {
+		provider = string(DiscordDetectionProviderYOLO)
+	}
+	switch DiscordDetectionProvider(provider) {
+	case DiscordDetectionProviderYOLO, DiscordDetectionProviderFrigate:
+		return provider, nil
+	default:
+		return "", fmt.Errorf("discord_detection_provider must be yolo or frigate")
 	}
 }
 

@@ -450,7 +450,9 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
             </span>
             {camera.discord_alerts_enabled && (
               <span className="rounded-full bg-status-online/15 px-2 py-0.5 text-status-online">
-                Discord alerts enabled
+                {camera.discord_detection_provider === 'frigate'
+                  ? 'Discord alerts via Frigate'
+                  : 'Discord alerts via YOLO'}
               </span>
             )}
           </div>

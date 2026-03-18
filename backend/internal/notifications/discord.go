@@ -102,6 +102,20 @@ func (n *DiscordNotifier) NotifyDetectionEvents(
 	snapshot detections.Snapshot,
 	events []detections.Event,
 ) error {
+	if strings.EqualFold(strings.TrimSpace(camera.DiscordDetectionProvider), string(cameras.DiscordDetectionProviderFrigate)) {
+		// This camera is configured to receive detection alerts from Frigate webhooks.
+		return nil
+	}
+	return n.NotifyExternalDetectionEvents(ctx, camera, snapshot, events, "YOLOv8")
+}
+
+func (n *DiscordNotifier) NotifyExternalDetectionEvents(
+	ctx context.Context,
+	camera cameras.Camera,
+	snapshot detections.Snapshot,
+	events []detections.Event,
+	sourceLabel string,
+) error {
 	if len(events) == 0 {
 		return nil
 	}
@@ -121,7 +135,7 @@ func (n *DiscordNotifier) NotifyDetectionEvents(
 		return nil
 	}
 
-	if err := n.sendDetectionWebhook(ctx, webhookURL, camera, snapshot, events); err != nil {
+	if err := n.sendDetectionWebhook(ctx, webhookURL, camera, snapshot, events, sourceLabel); err != nil {
 		return err
 	}
 	n.markSent(camera.ID)
@@ -323,7 +337,13 @@ func (n *DiscordNotifier) sendDetectionWebhook(
 	camera cameras.Camera,
 	snapshot detections.Snapshot,
 	events []detections.Event,
+	sourceLabel string,
 ) error {
+	source := strings.TrimSpace(sourceLabel)
+	if source == "" {
+		source = "YOLOv8"
+	}
+
 	mention := strings.TrimSpace(camera.DiscordMention)
 
 	snapshotAttachment := buildAttachment(snapshot.Path, "snapshot.jpg")
@@ -333,8 +353,8 @@ func (n *DiscordNotifier) sendDetectionWebhook(
 	}
 
 	embed := discordEmbed{
-		Title:       "YOLOv8 Detection Event",
-		Description: "Per-camera AI tracking reported one or more detections.",
+		Title:       source + " Detection Event",
+		Description: source + " reported one or more detections.",
 		Color:       5793266,
 		Timestamp:   events[0].CreatedAt.UTC().Format(time.RFC3339),
 		Fields:      buildFields(events),
@@ -372,8 +392,9 @@ func (n *DiscordNotifier) sendDetectionWebhook(
 	contentParts := []string{
 		mention,
 		fmt.Sprintf(
-			"Camera **%s** detected %d object(s): %s",
+			"Camera **%s** (%s) detected %d object(s): %s",
 			camera.Name,
+			source,
 			len(events),
 			summarizeDetections(events),
 		),

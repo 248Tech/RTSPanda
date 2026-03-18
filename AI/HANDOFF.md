@@ -1,6 +1,166 @@
 # RTSPanda — Handoff
 
-## Latest Handoff: 2026-03-14 — RAM Overhaul: 4 GB Target
+## Latest Handoff: 2026-03-18 — v0.0.6 Performance + Observability + System Monitor
+
+### Summary
+
+This session delivered three categories of work targeting a **4 GB Raspberry Pi** host:
+
+1. **UI fixes** — Multi-view Add Camera card with picker dropdown; ✕ remove button per panel
+2. **Performance overhaul** — Eliminated N+1 mediamtx API calls, gzip compression, code splitting (76% JS bundle reduction), DB index, request body limits
+3. **Observability + system monitoring** — Prometheus `/metrics`, system stats API, Settings → System tab, extended health check
+
+All changes compile clean: `go build ./...` and `npm run build` both pass.
+
+---
+
+### Bugs Fixed
+
+**mediamtx connection refused (`127.0.0.1:8888`):**
+- Root cause: `mediamtx/` directory existed but contained only `mediamtx.yml.tmpl` — no `mediamtx.exe` binary.
+- `Manager` correctly entered disabled mode, but the HLS reverse proxy in `router.go` was always registered unconditionally, so every `/hls/` request hit nothing.
+- Fix is operational (not code): place `mediamtx.exe` from [bluenviron/mediamtx v1.12.3](https://github.com/bluenviron/mediamtx/releases/tag/v1.12.3) into `mediamtx/`.
+
+---
+
+### UI Changes
+
+**`frontend/src/pages/MultiCameraView.tsx`**
+- Added `showPicker` state and `pickerRef` for the add card.
+- Added `addCamera()` callback (adds to selectedIds, closes picker).
+- Added click-outside handler to close picker on outside click.
+- Renders a `+` card (dashed border, `aspect-video` height) after selected camera panels whenever slots remain (`selectedIds.length < 4`) and unselected cameras exist. Clicking opens an inline dropdown of available cameras.
+- Added `✕` remove button to each camera panel header — removes camera from view without using the checkbox panel.
+
+---
+
+### Performance Changes (from AGENTIC-PERFORMANCE-PLAN.md)
+
+**Phase 1 — Stream status cache (P0)**
+- New `backend/internal/streams/cache.go`: `pathListCache` with 3-second TTL, RW-mutex, stale-on-error fallback, `invalidate()` for immediate refresh.
+- `health.go` rewritten: `StreamStatus()` and new `StreamStatusMap()` both use the cache — N cameras = 1 mediamtx API call.
+- `manager.go`: `pathCache` field added to `Manager`; `invalidate()` called on every `OnCameraAdded/Removed/Updated`; keepalive's `listPaths` call replaced with `m.pathCache.get()`.
+- New `IsReady() bool` method on Manager (used by health/ready endpoint).
+
+**Phase 1 — Batch status endpoint (P0)**
+- `GET /api/v1/cameras/stream-status` added to `streams.go`: fetches camera list from DB, calls `StreamStatusMap()` once, returns `{ camera_id: { status, hls_url } }` map.
+- `StreamStatusMap(cameraIDs []string)` added to `StreamManager` interface in `router.go`.
+
+**Phase 2 — Frontend batch usage (P0)**
+- `cameras.ts`: added `getStreamStatusMap()` calling the new endpoint.
+- `Dashboard.tsx`: now does `Promise.all([getCameras(), getStreamStatusMap()])` — one load = 2 parallel API calls total (was 1 + N serial).
+- `CameraCard.tsx`: added `initialStatus?: StreamStatus` prop. When provided, skips mount API call; only polls after mount. Falls back to per-card fetch when no initial status (e.g. in Settings).
+- `CameraGrid.tsx`: accepts `statusMap?: StreamStatusMap`, passes `initialStatus` to each card.
+
+**Phase 3 — Gzip, index, limits (P1)**
+- `middleware.go`: `gzipMiddleware` wraps `/api/` mux only. Compresses JSON responses with `gzip.BestSpeed` when client sends `Accept-Encoding: gzip`. HLS proxy and static assets excluded.
+- `008_cameras_index.sql`: `CREATE INDEX IF NOT EXISTS idx_cameras_order ON cameras(position, created_at)`.
+- `cameras.go`: `MaxBytesReader(w, r.Body, 256*1024)` on `handleCreateCamera` and `handleUpdateCamera`.
+
+**Phase 4 — Frontend code splitting (P1)**
+- `App.tsx`: all 5 page components wrapped in `React.lazy(() => import(...))` + `<Suspense fallback={<PageSpinner />}>`.
+- Initial JS bundle: **831 kB → 202 kB** (76% reduction). hls.js (529 kB) only loads when opening a camera view.
+- Separate chunks produced: Dashboard, CameraView, MultiCameraView, Settings, Guides, VideoPlayer/hls.js, Modal, StatusBadge.
+
+---
+
+### Observability Changes (from AGENTIC-PERFORMANCE-PLAN.md Phase 5 + AGENTIC-PLATFORM-EXPANSION-GUIDE.md Phase 1)
+
+**Request logging middleware** (`middleware.go`)
+- `loggingMiddleware` wraps entire mux. Logs method, path, status, duration for `/api/` routes.
+- `countingResponseWriter` captures status code and response bytes.
+- `countingReader` counts request body bytes.
+- All counts flow into `appMetrics` atomic counters.
+
+**Prometheus-compatible `/metrics` endpoint** (`metrics.go`)
+- Zero external dependencies — pure stdlib + `sync/atomic`.
+- Exposes: `rtspanda_http_requests_total`, `_2xx/4xx/5xx`, `_avg_duration_ms`, `rtspanda_network_bytes_in/out`, `rtspanda_stream_health_checks_total`, `rtspanda_discord_webhooks_total`.
+- Text exposition format compatible with Prometheus scrapers.
+
+**mediamtx native metrics** (`mediamtx.go` config template)
+- Added `metrics: yes` and `metricsAddress: 127.0.0.1:9998` to generated config.
+- mediamtx exposes its own Prometheus metrics at `http://127.0.0.1:9998/metrics` when running.
+
+**System stats API** (`sysinfo.go` + `api/sysinfo.ts`)
+- `GET /api/v1/system/stats` returns: `uptime_seconds`, `goroutines`, `heap_alloc_bytes`, `heap_sys_bytes`, `rss_bytes` (VmRSS from `/proc/self/status` on Linux; 0 on Windows), `network_bytes_in/out`, `http_requests_total`, `goos`, `goarch`, `num_cpu`.
+- RSS gives actual physical RAM usage on Raspberry Pi.
+
+**Extended health check** (`sysinfo.go`)
+- `GET /api/v1/health/ready`: pings DB (`PingContext`), probes mediamtx via cache, returns 503 + detail JSON if DB is down.
+- Original `GET /api/v1/health` (liveness) unchanged — still returns `{status: ok}` always.
+
+**Settings → System tab** (`Settings.tsx`)
+- New `SystemPanel` component: auto-refreshes every 5 seconds.
+- Displays: uptime, RSS/heap memory, goroutines, HTTP requests, network in/out.
+- RAM usage bar: shows % of 4 GB (Pi-targeted).
+- Platform line: `linux/arm64 · 4 CPUs`.
+
+---
+
+### Router/Interface Changes (`router.go`)
+
+- `StreamManager` interface extended with `StreamStatusMap()` and `IsReady()`.
+- `DBPinger` interface added; `DBPingerFunc` adapter for `*sql.DB.PingContext`.
+- `server` struct gains `db DBPinger` field.
+- `NewRouter` gains `db DBPinger` parameter — **breaking change to call site in `main.go`** (updated).
+- Route layout: `/metrics` (uncompressed) → gzip wrapped `/api/` mux → `/hls/` proxy → static SPA.
+- All routes wrapped with `loggingMiddleware` outermost.
+
+---
+
+### Files Changed
+
+**New files:**
+- `backend/internal/streams/cache.go`
+- `backend/internal/api/metrics.go`
+- `backend/internal/api/middleware.go`
+- `backend/internal/api/sysinfo.go`
+- `backend/internal/db/migrations/008_cameras_index.sql`
+- `frontend/src/api/sysinfo.ts`
+
+**Modified files:**
+- `backend/internal/streams/health.go` — use cache, add StreamStatusMap
+- `backend/internal/streams/manager.go` — add pathCache, IsReady, invalidation
+- `backend/internal/streams/mediamtx.go` — add metrics config
+- `backend/internal/api/streams.go` — add handleStreamStatusAll
+- `backend/internal/api/cameras.go` — add MaxBytesReader
+- `backend/internal/api/router.go` — full rewrite: new interface, middleware, routes
+- `backend/cmd/rtspanda/main.go` — pass db to NewRouter
+- `frontend/src/api/cameras.ts` — add getStreamStatusMap
+- `frontend/src/pages/Dashboard.tsx` — batch fetch, pass statusMap
+- `frontend/src/components/CameraCard.tsx` — accept initialStatus
+- `frontend/src/components/CameraGrid.tsx` — accept statusMap
+- `frontend/src/App.tsx` — React.lazy + Suspense
+- `frontend/src/pages/Settings.tsx` — System tab + SystemPanel
+- `frontend/src/pages/MultiCameraView.tsx` — Add Camera card + remove button
+
+---
+
+### What Was NOT Implemented (deferred to future sessions)
+
+From `AGENTIC-PLATFORM-EXPANSION-GUIDE.md`:
+- **Phase 2 — WebRTC + WHEP**: Requires WHEP frontend client (`RTCPeerConnection`), mediamtx WebRTC config, proxy route, and fallback logic. Estimated 2–3 days.
+- **Phase 3 — ONVIF discovery + PTZ**: Requires `github.com/use-go/onvif`, WS-Discovery, new DB migration, PTZ UI. Estimated 3–5 days.
+- **Phase 4 — CEL rules engine + MQTT**: Requires `github.com/google/cel-go`, `paho.mqtt.golang`, new tables (009 migration), rules UI. Estimated 3–5 days.
+- **Phase 5 — Auth proxy**: Env-based middleware, CIDR validation, `/api/v1/me`, example compose. Estimated 1 day.
+
+From `AGENTIC-PERFORMANCE-PLAN.md`:
+- **Phase 6 — React Query / SWR pagination**: Estimated 2 days. Can be done independently.
+- **Phase 7 — Scalability docs**: Estimated 2 hours.
+
+---
+
+### Risks / Notes for Next Agent
+
+1. **mediamtx metrics port conflict**: Port 9998 could conflict if something else is bound there. Document as configurable future improvement.
+2. **`sourceOnDemand` in mediamtx.go template is `no`**: Despite ADR-006 saying it should be `yes`, the current template has `sourceOnDemand: no`. This pre-dates this session — verify intent before changing.
+3. **Windows vs Linux RSS**: `rss_bytes` is always 0 on Windows (dev machine). The Pi will show real values. Frontend correctly displays heap as fallback.
+4. **Initial bundle warning**: `VideoPlayer` chunk is 529 kB (hls.js). Can be reduced with dynamic `import('hls.js')` inside VideoPlayer — deferred.
+5. **`handleStreamStatusAll` route order**: `GET /api/v1/cameras/stream-status` is registered before `GET /api/v1/cameras/{id}` in the mux — Go 1.22+ pattern matching will handle this correctly since the specific literal path wins.
+
+---
+
+## Previous Handoff: 2026-03-14 — RAM Overhaul: 4 GB Target
 
 ### Summary
 

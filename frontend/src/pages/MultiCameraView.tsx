@@ -25,6 +25,8 @@ export default function MultiCameraView({ onBack, onSelectCamera }: MultiCameraV
 
   const [sendingDiscordScreenshots, setSendingDiscordScreenshots] = useState(false)
   const [sendingDiscordRecordings, setSendingDiscordRecordings] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
+  const pickerRef = useRef<HTMLDivElement>(null)
 
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({})
 
@@ -106,6 +108,17 @@ export default function MultiCameraView({ onBack, onSelectCamera }: MultiCameraV
     return () => clearInterval(id)
   }, [fetchStreamInfo])
 
+  useEffect(() => {
+    if (!showPicker) return
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showPicker])
+
   const toggleCamera = useCallback((cameraId: string) => {
     setMessage(null)
     setSelectedIds((current) => {
@@ -122,6 +135,15 @@ export default function MultiCameraView({ onBack, onSelectCamera }: MultiCameraV
       return [...current, cameraId]
     })
   }, [expandedId])
+
+  const addCamera = useCallback((cameraId: string) => {
+    setShowPicker(false)
+    setMessage(null)
+    setSelectedIds((current) => {
+      if (current.includes(cameraId) || current.length >= MAX_MULTI_CAMERAS) return current
+      return [...current, cameraId]
+    })
+  }, [])
 
   const handleScreenshotAll = useCallback(() => {
     let captured = 0
@@ -297,6 +319,14 @@ export default function MultiCameraView({ onBack, onSelectCamera }: MultiCameraV
                     >
                       Open
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleCamera(camera.id)}
+                      title="Remove from view"
+                      className="rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-text-muted transition-colors hover:border-status-offline/40 hover:bg-status-offline/10 hover:text-status-offline focus:outline-none focus:ring-2 focus:ring-accent"
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
                 <VideoPlayer
@@ -308,6 +338,39 @@ export default function MultiCameraView({ onBack, onSelectCamera }: MultiCameraV
               </section>
             )
           })}
+
+          {/* Add camera card — shown when slots remain and unselected cameras exist */}
+          {selectedIds.length < MAX_MULTI_CAMERAS && cameras.some((c) => !selectedIds.includes(c.id)) && (
+            <div ref={pickerRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setShowPicker((v) => !v)}
+                className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-card text-text-muted transition-colors hover:border-accent/50 hover:bg-card-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+              >
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4v16m8-8H4" />
+                </svg>
+                <span className="text-sm font-medium">Add Camera</span>
+              </button>
+
+              {showPicker && (
+                <div className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
+                  {cameras
+                    .filter((c) => !selectedIds.includes(c.id))
+                    .map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => addCamera(c.id)}
+                        className="w-full px-4 py-2.5 text-left text-sm text-text-primary transition-colors hover:bg-card-hover focus:bg-card-hover focus:outline-none"
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

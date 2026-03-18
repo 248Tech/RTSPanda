@@ -1,10 +1,41 @@
 # RTSPanda — TODO
 
-Last updated: 2026-03-14
+Last updated: 2026-03-18
 
 ---
 
 ## Done
+
+### TASK-PERF-001 — Performance + Observability Overhaul (v0.0.6) ✓
+
+- **Completed:** 2026-03-18
+- **Description:** Raspberry Pi 4 / 4 GB performance pass and full observability layer.
+- **Changes:**
+  - Stream status 3-second path list cache — N cameras = 1 mediamtx API call (was N)
+  - `GET /api/v1/cameras/stream-status` batch endpoint
+  - Gzip compression on all `/api/` JSON responses
+  - DB index on `cameras(position, created_at)` — migration `008`
+  - 256 KB request body limits on camera create/update
+  - React.lazy + Suspense code splitting — initial JS bundle 831 kB → 202 kB (76% reduction)
+  - `loggingMiddleware` — every API request logged with method/path/status/duration
+  - `/metrics` Prometheus-compatible endpoint (stdlib only, no external library)
+  - mediamtx native metrics enabled (`metrics: yes`, port 9998)
+  - `GET /api/v1/system/stats` — RTSPanda process uptime, goroutines, heap, RSS, bandwidth
+  - `GET /api/v1/health/ready` — extended health check with DB ping + mediamtx probe
+  - Settings → System tab with live-refreshing RAM/CPU/network stats panel
+  - Multi-view: `+` Add Camera card with picker dropdown; `✕` remove button per panel
+
+### TASK-UI-002 — Multi-View UX Improvements (v0.0.6) ✓
+
+- **Completed:** 2026-03-18
+- **Description:** Multi-view grid add/remove camera UX and "Add Camera" button fix.
+- **Changes:**
+  - `+` Add Camera card in grid (dashed border, aspect-video, picker dropdown for unselected cameras)
+  - `✕` remove button on each camera panel header (remove from view without checkbox panel)
+  - Click-outside handler closes picker
+  - "Add Camera" button in Settings → Cameras always visible (was disappearing after first camera)
+
+---
 
 ### TASK-MEM-001 — RAM Overhaul: 4 GB Target ✓
 
@@ -72,6 +103,54 @@ Last updated: 2026-03-14
 - **Purpose:** Reduce transient `connection refused` / DNS lookup failures during container startup.
 - **Dependencies:** TASK-AI-001
 - **Next tool:** Aider
+
+---
+
+## Ready for Claude (Implementation — Platform Expansion)
+
+### TASK-EXP-001 — WebRTC live mode with HLS fallback
+
+- **Spec:** `AI/AGENTIC-PLATFORM-EXPANSION-GUIDE.md` Phase 2
+- **Description:** Add WHEP WebRTC playback via mediamtx, automatic HLS fallback on failure.
+- **Backend:** Enable `webrtc: yes` in mediamtx config; proxy `/webrtc/` → port 8889; extend stream API with `webrtc_url` + `preferred_protocol`.
+- **Frontend:** `WebRTCPlayer.tsx` using `RTCPeerConnection` + WHEP negotiation; `VideoPlayer.tsx` tries WebRTC first, falls back to HLS within 2–4 s.
+- **Pi benefit:** Sub-second latency; no HLS buffering overhead.
+- **Estimated effort:** 2–3 days.
+- **Next tool:** Claude (implementation)
+
+### TASK-EXP-002 — ONVIF discovery + PTZ controls
+
+- **Spec:** `AI/AGENTIC-PLATFORM-EXPANSION-GUIDE.md` Phase 3
+- **Description:** WS-Discovery scan, import discovered cameras, PTZ pan/tilt/zoom UI.
+- **Backend:** `backend/internal/onvif/` package; migration `009_onvif_ptz.sql`; PTZ API routes.
+- **Frontend:** Discover button in Settings; PTZ overlay in CameraView.
+- **Estimated effort:** 3–5 days.
+- **Next tool:** Claude (implementation)
+
+### TASK-EXP-003 — Rules engine (CEL) + MQTT output
+
+- **Spec:** `AI/AGENTIC-PLATFORM-EXPANSION-GUIDE.md` Phase 4
+- **Description:** Programmable event rules using CEL expressions; MQTT publish on match.
+- **Backend:** `github.com/google/cel-go`, `paho.mqtt.golang`; migration `009_automation_rules.sql`; rules CRUD API.
+- **Frontend:** Automation tab in Settings; rule editor form with expression field.
+- **Estimated effort:** 3–5 days.
+- **Next tool:** Claude (implementation)
+
+### TASK-EXP-004 — Auth proxy integration
+
+- **Spec:** `AI/AGENTIC-PLATFORM-EXPANSION-GUIDE.md` Phase 5
+- **Description:** Trusted forward-auth proxy support (oauth2-proxy / Authelia style).
+- **Backend:** `backend/internal/api/authproxy.go`; env vars `AUTH_PROXY_ENABLED`, `AUTH_PROXY_TRUSTED_CIDRS`, etc.; `GET /api/v1/me`.
+- **Artifacts:** `docker-compose.auth.yml`, `docs/AUTH_PROXY.md`.
+- **Estimated effort:** 1 day.
+- **Next tool:** Claude (implementation)
+
+### TASK-PERF-002 — React Query / SWR + pagination
+
+- **Spec:** `AI/AGENTIC-PERFORMANCE-PLAN.md` Phase 6
+- **Description:** Replace manual fetch/polling with React Query or SWR; add cursor pagination to `GET /api/v1/cameras`.
+- **Estimated effort:** 2 days.
+- **Next tool:** Cursor
 
 ---
 

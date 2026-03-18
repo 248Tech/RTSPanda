@@ -9,11 +9,13 @@ const STATUS_POLL_MS = 10_000
 export interface CameraCardProps {
   camera: Camera
   onSelect: (cameraId: string) => void
+  /** When provided by a parent batch fetch, the card skips its own API call. */
+  initialStatus?: StreamStatus
 }
 
-export function CameraCard({ camera, onSelect }: CameraCardProps) {
-  const [status, setStatus] = useState<StreamStatus>('connecting')
-  const [loading, setLoading] = useState(true)
+export function CameraCard({ camera, onSelect, initialStatus }: CameraCardProps) {
+  const [status, setStatus] = useState<StreamStatus>(initialStatus ?? 'connecting')
+  const [loading, setLoading] = useState(!initialStatus)
   const cancelledRef = useRef(false)
 
   const fetchStatus = useCallback(() => {
@@ -24,13 +26,17 @@ export function CameraCard({ camera, onSelect }: CameraCardProps) {
   }, [camera.id])
 
   useEffect(() => {
+    // If the parent supplied a status, don't fetch on mount — just poll for updates.
     cancelledRef.current = false
-    fetchStatus()
+    if (!initialStatus) {
+      fetchStatus()
+    }
     const id = setInterval(fetchStatus, STATUS_POLL_MS)
     return () => {
       cancelledRef.current = true
       clearInterval(id)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchStatus])
 
   const displayStatus = loading ? 'connecting' : status

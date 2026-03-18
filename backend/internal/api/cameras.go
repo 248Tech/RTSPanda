@@ -31,7 +31,10 @@ func (s *server) handleGetCamera(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, c)
 }
 
+const maxRequestBodyBytes = 256 * 1024 // 256 KB
+
 func (s *server) handleCreateCamera(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	var input cameras.CreateInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -57,7 +60,7 @@ func (s *server) handleCreateCamera(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleUpdateCamera(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	var input cameras.UpdateInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")

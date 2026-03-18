@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getCameras, resetAllStreams } from '../api/cameras'
-import type { Camera } from '../api/cameras'
+import { getCameras, getStreamStatusMap, resetAllStreams } from '../api/cameras'
+import type { Camera, StreamStatusMap } from '../api/cameras'
 import { CameraGrid } from '../components/CameraGrid'
 import { EmptyState } from '../components/EmptyState'
 
@@ -18,15 +18,18 @@ export default function Dashboard({
   onNavigateMulti,
 }: DashboardProps) {
   const [cameras, setCameras] = useState<Camera[]>([])
+  const [statusMap, setStatusMap] = useState<StreamStatusMap>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg] = useState<string | null>(null)
 
-  const fetchCameras = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
-      const list = await getCameras()
+      // Parallel fetch: camera list + all stream statuses in one mediamtx call
+      const [list, map] = await Promise.all([getCameras(), getStreamStatusMap()])
       setCameras(list)
+      setStatusMap(map)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load cameras')
@@ -35,11 +38,11 @@ export default function Dashboard({
     }
   }, [])
 
-  useEffect(() => { fetchCameras() }, [fetchCameras])
+  useEffect(() => { fetchAll() }, [fetchAll])
   useEffect(() => {
-    const id = setInterval(fetchCameras, POLL_INTERVAL_MS)
+    const id = setInterval(fetchAll, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [fetchCameras])
+  }, [fetchAll])
 
   const handleResetNetwork = useCallback(async () => {
     if (resetting) return
@@ -84,7 +87,7 @@ export default function Dashboard({
         <p className="mt-1 text-xs text-text-muted">{error}</p>
         <button
           type="button"
-          onClick={fetchCameras}
+          onClick={fetchAll}
           className="mt-3 text-xs text-accent hover:underline focus:outline-none"
         >
           Try again
@@ -142,7 +145,7 @@ export default function Dashboard({
         </div>
       </div>
 
-      <CameraGrid cameras={cameras} onSelectCamera={onSelectCamera} />
+      <CameraGrid cameras={cameras} onSelectCamera={onSelectCamera} statusMap={statusMap} />
     </div>
   )
 }

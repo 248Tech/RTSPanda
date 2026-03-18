@@ -39,6 +39,8 @@
 15. [Troubleshooting](#15-troubleshooting)
 16. [Security](#16-security)
 17. [API quick reference](#17-api-quick-reference)
+18. [System monitoring](#18-system-monitoring)
+19. [Prometheus metrics](#19-prometheus-metrics)
 
 ---
 
@@ -52,6 +54,7 @@ It ships as a **single file** that contains the entire web server and user inter
 
 - Shows a live grid of all your cameras
 - Lets you click into a full-screen single-camera view
+- Multi-camera view with up to 4 cameras simultaneously — add or remove cameras from the live grid
 - Saves screenshot PNGs with one click while watching
 - Records continuous MP4 segments to disk per camera (optional)
 - Lets you browse, download, and delete recordings from the browser
@@ -59,6 +62,8 @@ It ships as a **single file** that contains the entire web server and user inter
 - Draws live bounding-box overlays on video playback
 - Stores detection history with snapshot previews
 - Sends rich Discord webhook alerts with snapshot/clip media and manual push actions (optional), using YOLO or Frigate as the detection source
+- Shows live RTSPanda process stats (RAM, goroutines, uptime, bandwidth) in Settings → System
+- Exposes a Prometheus-compatible `/metrics` endpoint for external monitoring
 
 **What it is not:**
 
@@ -765,7 +770,10 @@ POST   /api/v1/cameras                    # add camera
 GET    /api/v1/cameras/{id}               # get camera
 PUT    /api/v1/cameras/{id}               # update camera
 DELETE /api/v1/cameras/{id}               # delete camera
-GET    /api/v1/cameras/{id}/stream        # get HLS URL + status
+GET    /api/v1/cameras/stream-status      # batch: all cameras' status in one call
+GET    /api/v1/cameras/{id}/stream        # single camera HLS URL + status
+POST   /api/v1/cameras/{id}/stream/reset  # force RTSP reconnect for one camera
+POST   /api/v1/streams/reset              # force RTSP reconnect for all cameras
 ```
 
 **Add camera — request body:**
@@ -918,7 +926,128 @@ Both fields are optional.
 ### Health
 
 ```http
-GET /api/v1/health   →   {"status": "ok"}
+GET /api/v1/health         →   {"status": "ok"}            # liveness — always 200
+GET /api/v1/health/ready   →   {"healthy": true, ...}      # readiness — 503 if DB down
+```
+
+**Ready response:**
+```json
+{
+  "healthy": true,
+  "checks": {
+    "db": { "ok": true },
+    "mediamtx": { "ok": true }
+  },
+  "uptime_ms": 84321
+}
+```
+
+### Batch stream status
+
+```http
+GET /api/v1/cameras/stream-status
+```
+
+Returns all cameras' status in a single call (used by the dashboard to eliminate N+1 queries):
+
+```json
+{
+  "camera-id-1": { "status": "online",  "hls_url": "/hls/camera-id-1/index.m3u8" },
+  "camera-id-2": { "status": "offline", "hls_url": "/hls/camera-id-2/index.m3u8" }
+}
+```
+
+### System stats
+
+```http
+GET /api/v1/system/stats
+```
+
+```json
+{
+  "uptime_seconds": 3600.5,
+  "goroutines": 42,
+  "heap_alloc_bytes": 18874368,
+  "heap_sys_bytes": 37748736,
+  "rss_bytes": 52428800,
+  "network_bytes_in": 204800,
+  "network_bytes_out": 10485760,
+  "http_requests_total": 1024,
+  "goos": "linux",
+  "goarch": "arm64",
+  "num_cpu": 4
+}
+```
+
+`rss_bytes` is physical RAM (from `/proc/self/status`) on Linux. Zero on other platforms.
+
+### Prometheus metrics
+
+```http
+GET /metrics
+```
+
+Returns Prometheus text format. Scrape with any Prometheus-compatible tool.
+
+---
+
+## 18. System monitoring
+
+RTSPanda exposes live process statistics in **Settings → System** tab.
+
+The panel shows:
+
+| Stat | What it means |
+|------|--------------|
+| Uptime | How long the RTSPanda process has been running |
+| RSS (physical RAM) | Actual memory used from the OS (Linux/Pi only) |
+| Heap allocated | Go runtime heap in active use |
+| Go heap reserved | Total heap memory reserved from OS (includes slack) |
+| Goroutines | Number of active Go goroutines (typical: 20–60) |
+| HTTP requests served | Total requests since startup |
+| Network received | Total HTTP request body bytes received |
+| Network sent | Total HTTP response bytes sent |
+
+The RAM bar shows usage as a percentage of **4 GB** (the target Raspberry Pi 4 SKU). Stats refresh every 5 seconds automatically.
+
+> **Note:** Network received/sent tracks HTTP API and static file traffic only — it does not include RTSP or HLS video stream data from mediamtx (that data never passes through the Go process).
+
+---
+
+## 19. Prometheus metrics
+
+RTSPanda exposes a Prometheus-compatible metrics endpoint at `GET /metrics`.
+
+**Available metrics:**
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `rtspanda_http_requests_total` | counter | Total HTTP requests handled |
+| `rtspanda_http_requests_2xx` | counter | 2xx (success) responses |
+| `rtspanda_http_requests_4xx` | counter | 4xx (client error) responses |
+| `rtspanda_http_requests_5xx` | counter | 5xx (server error) responses |
+| `rtspanda_http_avg_duration_ms` | gauge | Rolling average request duration in ms |
+| `rtspanda_network_bytes_in` | counter | HTTP request body bytes received |
+| `rtspanda_network_bytes_out` | counter | HTTP response bytes sent |
+| `rtspanda_stream_health_checks_total` | counter | Stream keepalive health checks run |
+| `rtspanda_discord_webhooks_total` | counter | Discord webhook calls made |
+
+**mediamtx native metrics** are available separately at `http://localhost:9998/metrics` when mediamtx is running.
+
+**Quick scrape test:**
+```bash
+curl http://localhost:8080/metrics
+```
+
+**Example Prometheus scrape config:**
+```yaml
+scrape_configs:
+  - job_name: rtspanda
+    static_configs:
+      - targets: ['localhost:8080']
+  - job_name: mediamtx
+    static_configs:
+      - targets: ['localhost:9998']
 ```
 
 ---

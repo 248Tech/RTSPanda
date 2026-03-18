@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httputil"
@@ -26,14 +27,21 @@ type StreamManager interface {
 	OnCameraRemoved(id string)
 	OnCameraUpdated(c cameras.Camera)
 	StreamStatus(cameraID string) streams.StreamStatus
+	StreamStatusMap(cameraIDs []string) map[string]streams.StreamStatus
 	ResetStream(cameraID string) error
 	ResetAllStreams()
+	IsReady() bool
 }
 
 type SettingsService interface {
 	Get() (settings.AppSettings, error)
 	Update(input settings.UpdateInput) (settings.AppSettings, error)
 }
+
+// DBPingerFunc allows the server to health-check the database.
+type DBPingerFunc func(ctx context.Context) error
+
+func (f DBPingerFunc) PingContext(ctx context.Context) error { return f(ctx) }
 
 type server struct {
 	cameras      CameraService
@@ -44,9 +52,20 @@ type server struct {
 	alertSvc     AlertService
 	recordingSvc RecordingService
 	logBuf       LogBuffer
+	db           DBPinger
 }
 
-func NewRouter(cameraSvc CameraService, streamMgr StreamManager, settingsSvc SettingsService, detectionSvc DetectionService, notifier DiscordNotificationService, alertSvc AlertService, recordingSvc RecordingService, logBuf LogBuffer) http.Handler {
+func NewRouter(
+	cameraSvc CameraService,
+	streamMgr StreamManager,
+	settingsSvc SettingsService,
+	detectionSvc DetectionService,
+	notifier DiscordNotificationService,
+	alertSvc AlertService,
+	recordingSvc RecordingService,
+	logBuf LogBuffer,
+	db DBPinger,
+) http.Handler {
 	s := &server{
 		cameras:      cameraSvc,
 		streams:      streamMgr,
@@ -56,70 +75,88 @@ func NewRouter(cameraSvc CameraService, streamMgr StreamManager, settingsSvc Set
 		alertSvc:     alertSvc,
 		recordingSvc: recordingSvc,
 		logBuf:       logBuf,
+		db:           db,
 	}
-	mux := http.NewServeMux()
+
+	// ── API mux (gzip compressed) ────────────────────────────────────────────
+	apiMux := http.NewServeMux()
 
 	// Health
-	mux.HandleFunc("GET /api/v1/health", handleHealth)
+	apiMux.HandleFunc("GET /api/v1/health", handleHealth)
+	apiMux.HandleFunc("GET /api/v1/health/ready", s.handleHealthReady)
 
-	// Logs (in-memory buffer)
-	mux.HandleFunc("GET /api/v1/logs", s.handleLogs)
+	// System stats + Prometheus metrics
+	apiMux.HandleFunc("GET /api/v1/system/stats", handleSystemStats)
+
+	// Logs
+	apiMux.HandleFunc("GET /api/v1/logs", s.handleLogs)
 
 	// App settings
-	mux.HandleFunc("GET /api/v1/settings", s.handleGetSettings)
-	mux.HandleFunc("PUT /api/v1/settings", s.handleUpdateSettings)
+	apiMux.HandleFunc("GET /api/v1/settings", s.handleGetSettings)
+	apiMux.HandleFunc("PUT /api/v1/settings", s.handleUpdateSettings)
 
 	// Camera CRUD
-	mux.HandleFunc("GET /api/v1/cameras", s.handleListCameras)
-	mux.HandleFunc("POST /api/v1/cameras", s.handleCreateCamera)
-	mux.HandleFunc("GET /api/v1/cameras/{id}", s.handleGetCamera)
-	mux.HandleFunc("PUT /api/v1/cameras/{id}", s.handleUpdateCamera)
-	mux.HandleFunc("DELETE /api/v1/cameras/{id}", s.handleDeleteCamera)
+	apiMux.HandleFunc("GET /api/v1/cameras", s.handleListCameras)
+	apiMux.HandleFunc("POST /api/v1/cameras", s.handleCreateCamera)
+	apiMux.HandleFunc("GET /api/v1/cameras/{id}", s.handleGetCamera)
+	apiMux.HandleFunc("PUT /api/v1/cameras/{id}", s.handleUpdateCamera)
+	apiMux.HandleFunc("DELETE /api/v1/cameras/{id}", s.handleDeleteCamera)
+
+	// Batch stream status (one mediamtx call for all cameras)
+	apiMux.HandleFunc("GET /api/v1/cameras/stream-status", s.handleStreamStatusAll)
 
 	// Stream status and control
-	mux.HandleFunc("GET /api/v1/cameras/{id}/stream", s.handleGetStream)
-	mux.HandleFunc("POST /api/v1/cameras/{id}/stream/reset", s.handleResetStream)
-	mux.HandleFunc("POST /api/v1/streams/reset", s.handleResetAllStreams)
+	apiMux.HandleFunc("GET /api/v1/cameras/{id}/stream", s.handleGetStream)
+	apiMux.HandleFunc("POST /api/v1/cameras/{id}/stream/reset", s.handleResetStream)
+	apiMux.HandleFunc("POST /api/v1/streams/reset", s.handleResetAllStreams)
 
-	// Detection foundation endpoints
-	mux.HandleFunc("GET /api/v1/detections/health", s.handleDetectionHealth)
-	mux.HandleFunc("POST /api/v1/cameras/{id}/detections/test-frame", s.handleCaptureTestFrame)
-	mux.HandleFunc("POST /api/v1/cameras/{id}/detections/test", s.handleTriggerTestDetection)
-	mux.HandleFunc("POST /api/v1/cameras/{id}/discord/screenshot", s.handleSendDiscordScreenshot)
-	mux.HandleFunc("POST /api/v1/cameras/{id}/discord/record", s.handleSendDiscordRecording)
-	mux.HandleFunc("GET /api/v1/detection-events", s.handleListDetectionEvents)
-	mux.HandleFunc("GET /api/v1/detection-events/{id}/snapshot", s.handleGetDetectionSnapshot)
-	mux.HandleFunc("POST /api/v1/frigate/events", s.handleFrigateEvent)
+	// Detection endpoints
+	apiMux.HandleFunc("GET /api/v1/detections/health", s.handleDetectionHealth)
+	apiMux.HandleFunc("POST /api/v1/cameras/{id}/detections/test-frame", s.handleCaptureTestFrame)
+	apiMux.HandleFunc("POST /api/v1/cameras/{id}/detections/test", s.handleTriggerTestDetection)
+	apiMux.HandleFunc("POST /api/v1/cameras/{id}/discord/screenshot", s.handleSendDiscordScreenshot)
+	apiMux.HandleFunc("POST /api/v1/cameras/{id}/discord/record", s.handleSendDiscordRecording)
+	apiMux.HandleFunc("GET /api/v1/detection-events", s.handleListDetectionEvents)
+	apiMux.HandleFunc("GET /api/v1/detection-events/{id}/snapshot", s.handleGetDetectionSnapshot)
+	apiMux.HandleFunc("POST /api/v1/frigate/events", s.handleFrigateEvent)
 
-	// Recordings (per-camera)
-	mux.HandleFunc("GET /api/v1/cameras/{id}/recordings", s.handleListRecordings)
-	mux.HandleFunc("GET /api/v1/cameras/{id}/recordings/{filename}", s.handleDownloadRecording)
-	mux.HandleFunc("DELETE /api/v1/cameras/{id}/recordings/{filename}", s.handleDeleteRecording)
+	// Recordings
+	apiMux.HandleFunc("GET /api/v1/cameras/{id}/recordings", s.handleListRecordings)
+	apiMux.HandleFunc("GET /api/v1/cameras/{id}/recordings/{filename}", s.handleDownloadRecording)
+	apiMux.HandleFunc("DELETE /api/v1/cameras/{id}/recordings/{filename}", s.handleDeleteRecording)
 
-	// Alert rules (per-camera)
-	mux.HandleFunc("GET /api/v1/cameras/{id}/alerts", s.handleListAlertRules)
-	mux.HandleFunc("POST /api/v1/cameras/{id}/alerts", s.handleCreateAlertRule)
-	mux.HandleFunc("GET /api/v1/cameras/{id}/alert-events", s.handleListCameraAlertEvents)
+	// Alert rules
+	apiMux.HandleFunc("GET /api/v1/cameras/{id}/alerts", s.handleListAlertRules)
+	apiMux.HandleFunc("POST /api/v1/cameras/{id}/alerts", s.handleCreateAlertRule)
+	apiMux.HandleFunc("GET /api/v1/cameras/{id}/alert-events", s.handleListCameraAlertEvents)
+	apiMux.HandleFunc("PUT /api/v1/alerts/{id}", s.handleUpdateAlertRule)
+	apiMux.HandleFunc("DELETE /api/v1/alerts/{id}", s.handleDeleteAlertRule)
+	apiMux.HandleFunc("GET /api/v1/alerts/{id}/events", s.handleListAlertEvents)
+	apiMux.HandleFunc("POST /api/v1/alerts/{id}/events", s.handleTriggerAlertEvent)
 
-	// Alert rules (by rule ID)
-	mux.HandleFunc("PUT /api/v1/alerts/{id}", s.handleUpdateAlertRule)
-	mux.HandleFunc("DELETE /api/v1/alerts/{id}", s.handleDeleteAlertRule)
-	mux.HandleFunc("GET /api/v1/alerts/{id}/events", s.handleListAlertEvents)
-	mux.HandleFunc("POST /api/v1/alerts/{id}/events", s.handleTriggerAlertEvent)
+	// ── Root mux (logging + metrics wrap everything) ─────────────────────────
+	mux := http.NewServeMux()
 
-	// HLS reverse proxy → mediamtx port 8888
+	// Prometheus metrics (not gzipped — scrapers don't send Accept-Encoding)
+	mux.HandleFunc("GET /metrics", handleMetrics)
+
+	// API routes with gzip
+	mux.Handle("/api/", gzipMiddleware(apiMux))
+
+	// HLS reverse proxy → mediamtx port 8888 (binary data, not gzipped)
 	hlsTarget := &url.URL{Scheme: "http", Host: "127.0.0.1:8888"}
 	hlsProxy := httputil.NewSingleHostReverseProxy(hlsTarget)
 	mux.Handle("/hls/", http.StripPrefix("/hls", hlsProxy))
 
-	// Embedded frontend (SPA): all other routes serve index.html
+	// Embedded frontend SPA
 	staticH, err := staticHandler()
 	if err != nil {
 		panic("static handler: " + err.Error())
 	}
 	mux.Handle("/", staticH)
 
-	return mux
+	// Wrap entire mux with logging + bandwidth metrics middleware.
+	return loggingMiddleware(mux)
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {

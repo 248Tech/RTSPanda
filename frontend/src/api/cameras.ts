@@ -136,6 +136,15 @@ export async function getStreamInfo(id: string): Promise<StreamInfo> {
   return res.json()
 }
 
+export type StreamStatusMap = Record<string, StreamInfo>
+
+/** One round-trip for all cameras' stream status — use on dashboard instead of per-card fetches. */
+export async function getStreamStatusMap(): Promise<StreamStatusMap> {
+  const res = await fetch(`${BASE}/cameras/stream-status`)
+  if (!res.ok) throw new Error(`getStreamStatusMap: ${res.status}`)
+  return res.json()
+}
+
 export async function resetStream(id: string): Promise<void> {
   const res = await fetch(`${BASE}/cameras/${id}/stream/reset`, { method: 'POST' })
   if (!res.ok) throw new Error(`resetStream: ${res.status}`)

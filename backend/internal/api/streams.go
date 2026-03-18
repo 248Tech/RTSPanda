@@ -17,9 +17,39 @@ func (s *server) handleGetStream(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleStreamStatusAll: GET /api/v1/cameras/stream-status
+// Returns the stream status for every camera in one mediamtx round-trip.
+// Response: { "camera-id": { "status": "online|offline|connecting", "hls_url": "..." }, ... }
+func (s *server) handleStreamStatusAll(w http.ResponseWriter, _ *http.Request) {
+	cameras, err := s.cameras.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	ids := make([]string, len(cameras))
+	for i, c := range cameras {
+		ids[i] = c.ID
+	}
+
+	statusMap := s.streams.StreamStatusMap(ids)
+
+	type entry struct {
+		Status string `json:"status"`
+		HLSURL string `json:"hls_url"`
+	}
+	result := make(map[string]entry, len(cameras))
+	for _, c := range cameras {
+		st := statusMap[c.ID]
+		result[c.ID] = entry{
+			Status: string(st),
+			HLSURL: "/hls/camera-" + c.ID + "/index.m3u8",
+		}
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 // handleResetStream: POST /api/v1/cameras/{id}/stream/reset
-// Removes and re-adds the mediamtx path for a single camera, forcing a fresh
-// RTSP reconnection without restarting the entire mediamtx process.
 func (s *server) handleResetStream(w http.ResponseWriter, r *http.Request) {
 	camera, ok := s.getCameraByPathID(w, r)
 	if !ok {
@@ -33,8 +63,7 @@ func (s *server) handleResetStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleResetAllStreams: POST /api/v1/streams/reset
-// Triggers a full mediamtx reload, reconnecting every active camera.
-func (s *server) handleResetAllStreams(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleResetAllStreams(w http.ResponseWriter, _ *http.Request) {
 	s.streams.ResetAllStreams()
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "reloading"})
 }

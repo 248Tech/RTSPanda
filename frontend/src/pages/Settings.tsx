@@ -16,6 +16,7 @@ import {
   type AlertType,
 } from '../api/alerts'
 import { getLogs } from '../api/logs'
+import { getSystemStats, type SystemStats } from '../api/sysinfo'
 import {
   getAppSettings,
   updateAppSettings,
@@ -26,7 +27,7 @@ import { CameraForm } from '../components/CameraForm'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Modal } from '../components/Modal'
 
-type Tab = 'cameras' | 'alerts' | 'integrations' | 'logs'
+type Tab = 'cameras' | 'alerts' | 'integrations' | 'logs' | 'system'
 type CameraModalMode = 'add' | 'edit' | 'delete' | null
 type AlertModalMode = 'add' | 'edit' | 'delete' | null
 
@@ -790,6 +791,113 @@ function IntegrationsPanel() {
   )
 }
 
+// ─── System Panel ──────────────────────────────────────────────────────────────
+
+function fmt(bytes: number): string {
+  if (bytes === 0) return '—'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let i = 0
+  let v = bytes
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(1)} ${units[i]}`
+}
+
+function fmtUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400)
+  const h = Math.floor((seconds % 86400) / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+function StatRow({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-border-muted py-3 last:border-0">
+      <span className="text-sm text-text-muted">{label}</span>
+      <div className="text-right">
+        <span className="text-sm font-medium text-text-primary">{value}</span>
+        {sub && <span className="ml-2 text-xs text-text-muted">{sub}</span>}
+      </div>
+    </div>
+  )
+}
+
+function SystemPanel() {
+  const [stats, setStats] = useState<SystemStats | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const s = await getSystemStats()
+      setStats(s)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load stats')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchStats()
+    const id = setInterval(fetchStats, 5000)
+    return () => clearInterval(id)
+  }, [fetchStats])
+
+  if (loading) {
+    return <div className="flex justify-center py-12"><span className="h-6 w-6 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-hidden /></div>
+  }
+
+  if (error || !stats) {
+    return <div className="rounded-lg border border-status-offline/20 bg-status-offline/5 px-5 py-4 text-sm text-status-offline">{error ?? 'No data'}</div>
+  }
+
+  const displayMemory = stats.rss_bytes > 0 ? stats.rss_bytes : stats.heap_alloc_bytes
+  const memLabel = stats.rss_bytes > 0 ? 'RSS (physical RAM)' : 'Heap allocated'
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-text-primary">RTSPanda Process Stats</h2>
+        <span className="text-xs text-text-muted">{stats.goos}/{stats.goarch} · {stats.num_cpu} CPU{stats.num_cpu !== 1 ? 's' : ''}</span>
+      </div>
+
+      <div className="rounded-lg border border-border bg-card px-5">
+        <StatRow label="Uptime" value={fmtUptime(stats.uptime_seconds)} />
+        <StatRow label={memLabel} value={fmt(displayMemory)} sub={stats.rss_bytes > 0 ? `heap: ${fmt(stats.heap_alloc_bytes)}` : undefined} />
+        <StatRow label="Go heap reserved" value={fmt(stats.heap_sys_bytes)} />
+        <StatRow label="Goroutines" value={stats.goroutines.toString()} />
+        <StatRow label="HTTP requests served" value={stats.http_requests_total.toLocaleString()} />
+        <StatRow label="Network received" value={fmt(stats.network_bytes_in)} />
+        <StatRow label="Network sent" value={fmt(stats.network_bytes_out)} />
+      </div>
+
+      {stats.rss_bytes > 0 && (
+        <div className="rounded-lg border border-border bg-card px-5">
+          <div className="py-3">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-xs text-text-muted">RAM usage</span>
+              <span className="text-xs text-text-muted">{fmt(displayMemory)} / 4 GB</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-surface">
+              <div
+                className="h-full rounded-full bg-accent transition-all"
+                style={{ width: `${Math.min(100, (displayMemory / (4 * 1024 * 1024 * 1024)) * 100).toFixed(1)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-text-muted">Stats auto-refresh every 5 seconds. Bandwidth counts HTTP traffic only — does not include RTSP/HLS stream data.</p>
+    </div>
+  )
+}
+
 // ─── Main Settings Page ────────────────────────────────────────────────────────
 
 export default function Settings() {
@@ -907,7 +1015,7 @@ export default function Settings() {
       {/* Tab bar */}
       <div className="flex items-center justify-between gap-4 border-b border-border pb-1">
         <nav className="flex gap-1" aria-label="Settings sections">
-          {(['cameras', 'alerts', 'integrations', 'logs'] as Tab[]).map((t) => (
+          {(['cameras', 'alerts', 'integrations', 'logs', 'system'] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
@@ -918,7 +1026,7 @@ export default function Settings() {
                   : 'text-text-muted hover:bg-card-hover hover:text-text-primary'
               }`}
             >
-              {t === 'alerts' ? 'Alert Rules' : t === 'integrations' ? 'Integrations' : t === 'logs' ? 'Logs' : 'Cameras'}
+              {t === 'alerts' ? 'Alert Rules' : t === 'integrations' ? 'Integrations' : t === 'logs' ? 'Logs' : t === 'system' ? 'System' : 'Cameras'}
             </button>
           ))}
         </nav>
@@ -1005,6 +1113,9 @@ export default function Settings() {
 
       {/* Logs tab */}
       {tab === 'logs' && <LogsPanel />}
+
+      {/* System tab */}
+      {tab === 'system' && <SystemPanel />}
 
       {/* Modals */}
       {modalMode === 'add' && (

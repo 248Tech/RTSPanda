@@ -28,6 +28,8 @@ type Manager struct {
 	statusClient *http.Client
 	// hlsClient probes the HLS endpoint (factor 2 health check).
 	hlsClient *http.Client
+	// pathCache caches the mediamtx path list so all cameras share one API call.
+	pathCache *pathListCache
 
 	keepaliveInterval    time.Duration
 	keepaliveReloadAfter int
@@ -43,7 +45,7 @@ func NewManager(dataDir string) *Manager {
 	if err != nil {
 		log.Printf("streams: WARNING — %v", err)
 		log.Printf("streams: streaming disabled; download mediamtx and place at mediamtx/mediamtx[.exe]")
-		return &Manager{disabled: true, camMap: make(map[string]cameras.Camera)}
+		return &Manager{disabled: true, camMap: make(map[string]cameras.Camera), pathCache: newPathListCache(3 * time.Second)}
 	}
 
 	configPath := filepath.Join(dataDir, "mediamtx.yml")
@@ -54,6 +56,7 @@ func NewManager(dataDir string) *Manager {
 		reloadCh:             make(chan struct{}, 1),
 		statusClient:         &http.Client{Timeout: 3 * time.Second},
 		hlsClient:            &http.Client{Timeout: 3 * time.Second},
+		pathCache:            newPathListCache(3 * time.Second),
 		keepaliveInterval:    15 * time.Second,
 		keepaliveReloadAfter: 4,
 		pathFailCounts:       make(map[string]int),
@@ -90,6 +93,15 @@ func (m *Manager) Start(ctx context.Context, cameraList []cameras.Camera) error 
 	return nil
 }
 
+// IsReady returns true when mediamtx is running and its API is reachable.
+func (m *Manager) IsReady() bool {
+	if m.disabled {
+		return false
+	}
+	_, err := m.pathCache.get(m.statusClient)
+	return err == nil
+}
+
 // Stop shuts down mediamtx and the watchdog.
 func (m *Manager) Stop() {
 	if m.disabled || m.cancel == nil {
@@ -111,6 +123,7 @@ func (m *Manager) OnCameraAdded(c cameras.Camera) {
 	m.mu.Unlock()
 
 	log.Printf("streams: adding camera id=%s name=%q rtsp=%s", c.ID, c.Name, c.RTSPURL)
+	m.pathCache.invalidate()
 	e := cameraEntry{ID: c.ID, RTSPURL: c.RTSPURL, RecordEnabled: c.RecordEnabled}
 	if err := apiAddPath(e); err != nil {
 		log.Printf("streams: camera %s: add path via API failed — %v (triggering config reload)", c.ID, err)
@@ -128,6 +141,7 @@ func (m *Manager) OnCameraRemoved(id string) {
 	m.mu.Unlock()
 
 	log.Printf("streams: removing camera id=%s", id)
+	m.pathCache.invalidate()
 	if err := apiRemovePath(id); err != nil {
 		log.Printf("streams: camera %s: remove path via API failed — %v (triggering config reload)", id, err)
 		m.triggerReload()
@@ -261,7 +275,7 @@ func (m *Manager) runKeepalive() {
 		return
 	}
 
-	paths, err := listPaths(m.statusClient)
+	paths, err := m.pathCache.get(m.statusClient)
 	if err != nil {
 		m.mu.Lock()
 		m.keepaliveAPIFailures++

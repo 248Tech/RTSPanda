@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
-import CameraView from './pages/CameraView'
-import Dashboard from './pages/Dashboard'
-import Guides from './pages/Guides'
-import MultiCameraView from './pages/MultiCameraView'
-import Settings from './pages/Settings'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const CameraView = lazy(() => import('./pages/CameraView'))
+const MultiCameraView = lazy(() => import('./pages/MultiCameraView'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Guides = lazy(() => import('./pages/Guides'))
+
+function PageSpinner() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center">
+      <span className="h-8 w-8 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-hidden />
+      <span className="sr-only">Loading…</span>
+    </div>
+  )
+}
 
 function usePath() {
   const [path, setPath] = useState(() => window.location.pathname)
@@ -178,31 +188,33 @@ export default function App() {
       />
       <main className="pl-14">
         <div className="mx-auto max-w-7xl px-5 py-6">
-          {path === '/' && (
-            <Dashboard
-              onSelectCamera={onSelectCamera}
-              onNavigateSettings={onNavigateSettings}
-              onNavigateMulti={onNavigateMulti}
-            />
-          )}
-          {path === '/multi' && (
-            <MultiCameraView
-              onBack={() => navigate('/')}
-              onSelectCamera={onSelectCamera}
-            />
-          )}
-          {path === '/settings' && <Settings />}
-          {path === '/guides' && <Guides />}
-          {cameraId && (
-            <CameraView
-              cameraId={cameraId}
-              onBack={() => navigate('/')}
-              onNavigateSettings={onNavigateSettings}
-            />
-          )}
-          {path !== '/' && path !== '/settings' && path !== '/multi' && path !== '/guides' && !cameraIdMatch && (
-            <p className="text-text-muted">Not found.</p>
-          )}
+          <Suspense fallback={<PageSpinner />}>
+            {path === '/' && (
+              <Dashboard
+                onSelectCamera={onSelectCamera}
+                onNavigateSettings={onNavigateSettings}
+                onNavigateMulti={onNavigateMulti}
+              />
+            )}
+            {path === '/multi' && (
+              <MultiCameraView
+                onBack={() => navigate('/')}
+                onSelectCamera={onSelectCamera}
+              />
+            )}
+            {path === '/settings' && <Settings />}
+            {path === '/guides' && <Guides />}
+            {cameraId && (
+              <CameraView
+                cameraId={cameraId}
+                onBack={() => navigate('/')}
+                onNavigateSettings={onNavigateSettings}
+              />
+            )}
+            {path !== '/' && path !== '/settings' && path !== '/multi' && path !== '/guides' && !cameraIdMatch && (
+              <p className="text-text-muted">Not found.</p>
+            )}
+          </Suspense>
         </div>
       </main>
     </div>

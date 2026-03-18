@@ -29,20 +29,19 @@ type pathState struct {
 	Ready bool
 }
 
-// StreamStatus returns the current streaming status for a given camera ID by
-// querying the mediamtx internal API.
+// StreamStatus returns the current streaming status for a given camera by
+// querying the cached mediamtx path list (one mediamtx call serves all cameras).
 func (m *Manager) StreamStatus(cameraID string) StreamStatus {
 	if m.disabled {
 		return StatusOffline
 	}
 
-	paths, err := listPaths(m.statusClient)
+	paths, err := m.pathCache.get(m.statusClient)
 	if err != nil {
 		return StatusOffline
 	}
 
-	target := "camera-" + cameraID
-	item, ok := paths[target]
+	item, ok := paths["camera-"+cameraID]
 	if !ok {
 		return StatusOffline
 	}
@@ -50,6 +49,37 @@ func (m *Manager) StreamStatus(cameraID string) StreamStatus {
 		return StatusOnline
 	}
 	return StatusConnecting
+}
+
+// StreamStatusMap returns the status for every requested camera ID in one
+// mediamtx round-trip (uses the shared path list cache).
+func (m *Manager) StreamStatusMap(cameraIDs []string) map[string]StreamStatus {
+	result := make(map[string]StreamStatus, len(cameraIDs))
+	for _, id := range cameraIDs {
+		result[id] = StatusOffline
+	}
+	if m.disabled || len(cameraIDs) == 0 {
+		return result
+	}
+
+	paths, err := m.pathCache.get(m.statusClient)
+	if err != nil {
+		return result
+	}
+
+	for _, id := range cameraIDs {
+		item, ok := paths["camera-"+id]
+		if !ok {
+			result[id] = StatusOffline
+			continue
+		}
+		if item.Ready {
+			result[id] = StatusOnline
+		} else {
+			result[id] = StatusConnecting
+		}
+	}
+	return result
 }
 
 func listPaths(client *http.Client) (map[string]pathState, error) {
@@ -73,7 +103,6 @@ func listPaths(client *http.Client) (map[string]pathState, error) {
 
 // checkHLSReachable probes the HLS playlist for a camera to verify mediamtx
 // is actively serving segments (not just registering the path as ready).
-// This is the second factor in the multi-factor health check.
 func checkHLSReachable(client *http.Client, cameraID string) bool {
 	resp, err := client.Get(hlsBase + "/camera-" + cameraID + "/index.m3u8")
 	if err != nil {

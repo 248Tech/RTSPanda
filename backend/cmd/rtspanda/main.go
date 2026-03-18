@@ -130,7 +130,7 @@ func main() {
 	videoStorageSvc.Start(ctx)
 
 	// HTTP server
-	router := api.NewRouter(cameraSvc, streamMgr, settingsSvc, detectionMgr, discordNotifier, alertSvc, recordingSvc, logBuf)
+	router := api.NewRouter(cameraSvc, streamMgr, settingsSvc, detectionMgr, discordNotifier, alertSvc, recordingSvc, logBuf, api.DBPingerFunc(database.PingContext))
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", port),
 		Handler:      router,

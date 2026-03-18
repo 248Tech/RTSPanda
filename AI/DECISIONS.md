@@ -213,6 +213,78 @@ This file records key decisions made during planning. Before changing anything l
 
 ---
 
+## DEC-013 — Stream status uses a short-lived in-process cache (not per-request mediamtx calls)
+
+**Decision:** All stream status queries (per-camera and batch) go through a 3-second TTL in-memory cache of the mediamtx `/v3/paths/list` response.
+
+**Rationale:**
+- Dashboard previously made N mediamtx API calls per load (one per camera). On a Pi with 4+ cameras this added measurable latency and CPU overhead.
+- mediamtx path list is cheap to fetch and changes infrequently (only on camera add/remove or reconnect).
+- 3-second TTL gives near-real-time status while capping mediamtx round-trips to at most one per 3 seconds across all callers.
+
+**Implications:**
+- Cache is invalidated immediately on `OnCameraAdded`, `OnCameraRemoved`, `OnCameraUpdated`.
+- On mediamtx API error, cache returns stale data rather than reporting all cameras offline (fail-open).
+- Both `StreamStatus(id)` (single) and `StreamStatusMap(ids)` (batch) share the same cache object.
+
+**Status:** Decided. TTL is a constant in `cache.go` — adjust if needed.
+
+---
+
+## DEC-014 — Prometheus metrics use stdlib atomic counters (no external client library)
+
+**Decision:** `/metrics` is implemented with `sync/atomic` counters exposed in Prometheus text format. No `github.com/prometheus/client_golang` dependency.
+
+**Rationale:**
+- The Prometheus client library adds ~5 MB to the binary and significant import graph complexity.
+- RTSPanda's metric surface is small: request counts, durations, network bytes, stream checks, Discord calls.
+- Prometheus text format is a simple line protocol trivially hand-written with `fmt.Fprintf`.
+- Keeps the Go binary small (important for Pi SD card / RAM constraints).
+
+**Implications:**
+- Histograms are not implemented — only counters and a single avg duration gauge.
+- If richer metric cardinality (per-route labels, per-camera stream gauges) is needed later, add the Prometheus library then.
+- mediamtx exposes its own full Prometheus metrics at port 9998 — scrapers can hit both endpoints.
+
+**Status:** Decided. Add library only if label cardinality or histogram precision becomes a clear need.
+
+---
+
+## DEC-015 — System stats use /proc/self/status for RSS on Linux; runtime.ReadMemStats for heap everywhere
+
+**Decision:** `GET /api/v1/system/stats` reads physical RAM from `/proc/self/status` (VmRSS) on Linux (the primary deploy target = Raspberry Pi). On Windows (dev), it falls back to Go heap stats with `rss_bytes: 0`.
+
+**Rationale:**
+- `runtime.ReadMemStats()` reports Go heap, not total process RSS. On a Pi you want to know total memory consumption including CGo, SQLite pages, and OS buffers.
+- `/proc/self/status` is stable, zero-dependency, and available on all Linux kernels.
+- The Windows fallback is acceptable because monitoring is primarily a Pi production concern.
+
+**Implications:**
+- `rss_bytes` is 0 in local Windows development. Frontend shows heap as fallback (labeled clearly).
+- RAM bar in the UI is hardcoded to 4 GB denominator — matches the target Raspberry Pi 4 SKU.
+
+**Status:** Decided. Adjust 4 GB denominator if the target hardware changes.
+
+---
+
+## DEC-016 — Frontend routes are lazy-loaded; hls.js is excluded from initial bundle
+
+**Decision:** All page-level components are wrapped in `React.lazy` + `Suspense`. This splits the single 831 kB bundle into per-route chunks, keeping the initial load at ~202 kB.
+
+**Rationale:**
+- hls.js alone is ~500 kB. Loading it on the dashboard or settings page where no video plays wastes bandwidth and parse time (especially on Pi-served connections).
+- Code splitting is a one-time change with no ongoing maintenance cost.
+- `<PageSpinner>` Suspense fallback provides a smooth loading experience.
+
+**Implications:**
+- First navigation to each page incurs a small chunk fetch (cached after first visit).
+- Any code added to page components is automatically tree-shaken into that page's chunk.
+- If a new shared component is added to `App.tsx` directly, it will be in the initial bundle — keep `App.tsx` lean.
+
+**Status:** Decided.
+
+---
+
 ## DEC-012 — Discord rich alerts are emitted from detection manager via notifier boundary
 
 **Decision:** Send Discord alerts from backend detection pipeline through a notifier interface.

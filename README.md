@@ -19,21 +19,18 @@ RTSPanda is a small app you run on your PC or server. You add your camera URLs, 
 
 ---
 
-## What is new (v0.0.5)
+## What is new (v0.0.6)
 
-- **Frigate Detection Provider:** choose YOLOv8 or Frigate per camera when configuring Discord detection alerts.
-- **Frigate Webhook Ingest:** new backend endpoint `POST /api/v1/frigate/events` routes Frigate events to matching cameras configured with provider `frigate`.
-- **Frigate Snapshot Attachments:** optional `FRIGATE_BASE_URL` support to fetch Frigate event snapshots and include them in Discord alerts.
-- **Alert Provider Controls:** new camera fields `discord_detection_provider` and `frigate_camera_name` added across DB migration, backend model/service/repository, and frontend forms.
-- **Guides Page:** new in-app **Guides** route with:
-  - Lorex NVR port-forward workflow
-  - Tailscale setup workflow
-  - Lorex RTSP address retrieval workflow
-- **Support the Developer UI:** donation links to [248tech.com/donate](https://248tech.com/donate) added in sidebar and guides page.
-- **Docs Refresh:** README and user guide updated for Frigate setup, provider-based alert configuration, and new API/env options.
+- **Performance:** stream-status path cache + batch endpoint (`GET /api/v1/cameras/stream-status`) removes dashboard N+1 stream polling calls.
+- **Faster frontend load:** route-level code splitting (`React.lazy` + `Suspense`) drops initial JS bundle from ~831 kB to ~202 kB.
+- **Observability:** new request logging middleware, Prometheus-compatible `/metrics`, mediamtx metrics on `127.0.0.1:9998`, and system stats endpoint `GET /api/v1/system/stats`.
+- **Health and readiness:** new deep-check endpoint `GET /api/v1/health/ready` validates DB connectivity and stream manager readiness.
+- **UI/UX updates:** multi-view now supports inline **Add Camera** card picker and quick remove (`✕`) per panel; Settings includes a live **System** monitoring tab.
+- **Hardening:** 256 KB request-body limit on camera create/update and DB index migration `008_cameras_index.sql` for camera ordering/query speed.
+- **AI docs + planning:** `AI/` documentation refreshed for v0.0.6 handoff/status plus new platform expansion implementation guide.
 
-Release details: [RELEASE_NOTES_v0.0.5.md](RELEASE_NOTES_v0.0.5.md)
-Diff: [v0.0.4...v0.0.5](https://github.com/248Tech/RTSPanda/compare/v0.0.4...v0.0.5)
+Release details: [RELEASE_NOTES_v0.0.6.md](RELEASE_NOTES_v0.0.6.md)
+Diff: [v0.0.5...v0.0.6](https://github.com/248Tech/RTSPanda/compare/v0.0.5...v0.0.6)
 
 ---
 

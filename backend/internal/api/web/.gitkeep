@@ -1,2 +1,0 @@
-# Frontend is built and copied here by Makefile / build.ps1 before go build.
-# Keep this file so the directory exists in the repo.

@@ -1,4 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { LoginView } from './auth/LoginView'
+import { useAuth } from './auth/useAuth'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const CameraView = lazy(() => import('./pages/CameraView'))
@@ -69,12 +71,16 @@ function Sidebar({
   onNavigateMulti,
   onNavigateGuides,
   onNavigateSettings,
+  showLogout,
+  onLogout,
 }: {
   path: string
   onNavigateHome: () => void
   onNavigateMulti: () => void
   onNavigateGuides: () => void
   onNavigateSettings: () => void
+  showLogout: boolean
+  onLogout: () => void
 }) {
   const isHome = path === '/' || path.startsWith('/cameras/')
   const isMulti = path === '/multi'
@@ -156,12 +162,27 @@ function Sidebar({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
         </NavItem>
+        {showLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            title="Sign out"
+            aria-label="Sign out"
+            className="flex h-10 w-10 items-center justify-center rounded-lg text-text-muted transition-all hover:bg-card-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-base"
+          >
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 9V5.75A1.75 1.75 0 0014 4H6.75A1.75 1.75 0 005 5.75v12.5A1.75 1.75 0 006.75 20H14a1.75 1.75 0 001.75-1.75V15" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 12h9m0 0l-2.5-2.5M19 12l-2.5 2.5" />
+            </svg>
+          </button>
+        )}
       </div>
     </aside>
   )
 }
 
 export default function App() {
+  const auth = useAuth()
   const [path, navigate] = usePath()
 
   const onNavigateHome = useCallback(() => navigate('/'), [navigate])
@@ -173,9 +194,31 @@ export default function App() {
     (cameraId: string) => navigate(`/cameras/${cameraId}`),
     [navigate]
   )
+  const onLogout = useCallback(() => {
+    void auth.logout()
+  }, [auth])
 
   const cameraIdMatch = path.startsWith('/cameras/') && path.length > 9
   const cameraId = cameraIdMatch ? path.slice(9).split('/')[0] || null : null
+
+  if (auth.loading) {
+    return (
+      <div className="min-h-screen bg-base font-sans text-text-primary">
+        <PageSpinner />
+      </div>
+    )
+  }
+
+  if (auth.enabled && !auth.authenticated) {
+    return (
+      <LoginView
+        mode={auth.mode}
+        error={auth.error}
+        isSubmitting={auth.isLoggingIn}
+        onSubmit={auth.login}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen bg-base font-sans text-text-primary">
@@ -185,6 +228,8 @@ export default function App() {
         onNavigateMulti={onNavigateMulti}
         onNavigateGuides={onNavigateGuides}
         onNavigateSettings={onNavigateSettings}
+        showLogout={auth.enabled}
+        onLogout={onLogout}
       />
       <main className="pl-14">
         <div className="mx-auto max-w-7xl px-5 py-6">

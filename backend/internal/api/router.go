@@ -3,10 +3,12 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 
+	"github.com/rtspanda/rtspanda/internal/auth"
 	"github.com/rtspanda/rtspanda/internal/cameras"
 	"github.com/rtspanda/rtspanda/internal/settings"
 	"github.com/rtspanda/rtspanda/internal/streams"
@@ -66,6 +68,17 @@ func NewRouter(
 	logBuf LogBuffer,
 	db DBPinger,
 ) http.Handler {
+	authCfg, err := auth.LoadConfigFromEnv()
+	if err != nil {
+		panic("auth config: " + err.Error())
+	}
+	authMgr := auth.NewManager(authCfg)
+	if authCfg.Enabled {
+		log.Printf("auth enabled (mode=%s)", authMgr.Mode())
+	} else {
+		log.Printf("auth disabled (AUTH_ENABLED=false)")
+	}
+
 	s := &server{
 		cameras:      cameraSvc,
 		streams:      streamMgr,
@@ -80,6 +93,12 @@ func NewRouter(
 
 	// ── API mux (gzip compressed) ────────────────────────────────────────────
 	apiMux := http.NewServeMux()
+
+	// Auth bootstrap and session routes
+	apiMux.HandleFunc("GET /api/v1/auth/config", authMgr.HandleConfig)
+	apiMux.HandleFunc("GET /api/v1/auth/session", authMgr.HandleSession)
+	apiMux.HandleFunc("POST /api/v1/auth/login", authMgr.HandleLogin)
+	apiMux.HandleFunc("POST /api/v1/auth/logout", authMgr.HandleLogout)
 
 	// Health
 	apiMux.HandleFunc("GET /api/v1/health", handleHealth)
@@ -141,7 +160,18 @@ func NewRouter(
 	mux.HandleFunc("GET /metrics", handleMetrics)
 
 	// API routes with gzip
-	mux.Handle("/api/", gzipMiddleware(apiMux))
+	apiHandler := http.Handler(apiMux)
+	if authCfg.Enabled {
+		protectedAPI := authMgr.Middleware(apiMux)
+		apiHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isPublicAPIPath(r.URL.Path) {
+				apiMux.ServeHTTP(w, r)
+				return
+			}
+			protectedAPI.ServeHTTP(w, r)
+		})
+	}
+	mux.Handle("/api/", gzipMiddleware(apiHandler))
 
 	// HLS reverse proxy → mediamtx port 8888 (binary data, not gzipped)
 	hlsTarget := &url.URL{Scheme: "http", Host: "127.0.0.1:8888"}
@@ -157,6 +187,20 @@ func NewRouter(
 
 	// Wrap entire mux with logging + bandwidth metrics middleware.
 	return loggingMiddleware(mux)
+}
+
+func isPublicAPIPath(path string) bool {
+	switch path {
+	case "/api/v1/health",
+		"/api/v1/health/ready",
+		"/api/v1/auth/config",
+		"/api/v1/auth/session",
+		"/api/v1/auth/login",
+		"/api/v1/auth/logout":
+		return true
+	default:
+		return false
+	}
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {

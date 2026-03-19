@@ -3,7 +3,8 @@ RTSPanda AI Worker - ONNX Runtime inference.
 
 Uses onnxruntime + numpy with CPU execution provider. This module includes
 Pi-friendly defaults, explicit request throttling, and fallback behavior for
-low-power ARM hosts.
+low-power ARM hosts. Model provisioning is build-time or mount-time only; the
+runtime never downloads or exports models.
 """
 
 from __future__ import annotations
@@ -112,6 +113,25 @@ def _resolve_pi_mode(machine: str) -> bool:
     return _is_arm_machine(machine)
 
 
+def _resolve_model_source() -> str:
+    return _normalize_choice(
+        "MODEL_SOURCE",
+        os.getenv("MODEL_SOURCE", "remote"),
+        "remote",
+        {"local", "remote"},
+    )
+
+
+def _resolve_model_path() -> str:
+    explicit = os.getenv("MODEL_PATH")
+    if explicit and explicit.strip():
+        return explicit.strip()
+    legacy = os.getenv("YOLO_MODEL_PATH")
+    if legacy and legacy.strip():
+        return legacy.strip()
+    return "/model/model.onnx"
+
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -119,7 +139,9 @@ def _resolve_pi_mode(machine: str) -> bool:
 MACHINE = platform.machine() or "unknown"
 PI_MODE = _resolve_pi_mode(MACHINE)
 
-MODEL_PATH = os.getenv("YOLO_MODEL_PATH", "/model/yolov8n.onnx")
+MODEL_SOURCE = _resolve_model_source()
+MODEL_PATH = _resolve_model_path()
+MODEL_URL = os.getenv("YOLO_MODEL_URL", "").strip()
 CONFIDENCE = _env_float("YOLO_CONFIDENCE", 0.25, minimum=0.0)
 IOU_THRESHOLD = _env_float("YOLO_IOU", 0.45, minimum=0.0)
 MAX_DETECTIONS = _env_int(
@@ -180,9 +202,10 @@ SLOW_COOLDOWN_MS = _env_int(
 
 
 logger.info(
-    "ai_worker: config pi_mode=%s arch=%s model_required=%s fallback=%s busy=%s intra=%d inter=%d min_interval_ms=%d",
+    "ai_worker: config pi_mode=%s arch=%s model_source=%s model_required=%s fallback=%s busy=%s intra=%d inter=%d min_interval_ms=%d",
     PI_MODE,
     MACHINE,
+    MODEL_SOURCE,
     MODEL_REQUIRED,
     FALLBACK_MODE,
     BUSY_POLICY,
@@ -268,6 +291,15 @@ def _model_size_error(path: str) -> Optional[str]:
     return None
 
 
+def _missing_model_error(path: str) -> str:
+    if MODEL_SOURCE == "local":
+        return f"local model required but missing at {path}"
+    return (
+        f"model missing at {path}; build the image with a prebuilt ONNX model "
+        f"or mount one into {path}"
+    )
+
+
 def _load_model() -> None:
     global _session, _input_name, _infer_size, _provider_names, _model_error
 
@@ -278,6 +310,13 @@ def _load_model() -> None:
 
     if ort is None:
         _model_error = f"onnxruntime unavailable: {_ORT_IMPORT_ERROR}"
+        if MODEL_REQUIRED:
+            raise RuntimeError(_model_error)
+        logger.warning("ai_worker: %s (degraded mode)", _model_error)
+        return
+
+    if not os.path.isfile(MODEL_PATH):
+        _model_error = _missing_model_error(MODEL_PATH)
         if MODEL_REQUIRED:
             raise RuntimeError(_model_error)
         logger.warning("ai_worker: %s (degraded mode)", _model_error)
@@ -320,8 +359,9 @@ _load_model()
 
 
 logger.info(
-    "ai_worker: runtime ready loaded=%s infer_size=%d confidence=%.2f iou=%.2f max_det=%d",
+    "ai_worker: runtime ready loaded=%s model_source=%s infer_size=%d confidence=%.2f iou=%.2f max_det=%d",
     _session is not None,
+    MODEL_SOURCE,
     _infer_size,
     CONFIDENCE,
     IOU_THRESHOLD,
@@ -525,7 +565,9 @@ def health() -> dict:
         last_inference_ms = _last_inference_ms
     return {
         "status": "ok" if _session is not None else "degraded",
+        "model_source": MODEL_SOURCE,
         "model_path": MODEL_PATH,
+        "model_url_configured": bool(MODEL_URL),
         "infer_size": _infer_size,
         "confidence_threshold": CONFIDENCE,
         "iou_threshold": IOU_THRESHOLD,

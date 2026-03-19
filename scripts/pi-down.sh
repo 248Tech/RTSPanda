@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Stop RTSPanda Compose stack on Raspberry Pi.
+# Stop RTSPanda Compose services, including Pi/standalone profile targets.
 
 set -eu
 
@@ -12,3 +12,4 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 docker compose down
+printf "RTSPanda services stopped.\n"

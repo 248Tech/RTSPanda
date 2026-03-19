@@ -115,9 +115,19 @@ func main() {
 	}
 
 	// Async object detection manager (gracefully degraded if ffmpeg/detector unavailable).
+	aiConfig, err := detections.ResolveAIConfig(
+		os.Getenv("AI_MODE"),
+		os.Getenv("DETECTOR_URL"),
+		os.Getenv("AI_WORKER_URL"),
+	)
+	if err != nil {
+		log.Fatalf("resolve AI detector config: %v", err)
+	}
 	detectionMgr := detections.NewManager(dataDir, detectionRepo, detections.Config{
 		FFmpegBin:             ffmpegBin,
-		DetectorURL:           envOrDefault("DETECTOR_URL", "http://127.0.0.1:8090"),
+		AIMode:                aiConfig.Mode,
+		AIWorkerURL:           aiConfig.AIWorkerURL,
+		DetectorURL:           aiConfig.DetectorURL,
 		DefaultSampleInterval: time.Duration(envIntOrDefault("DETECTION_SAMPLE_INTERVAL_SECONDS", 30)) * time.Second,
 		QueueSize:             envIntOrDefault("DETECTION_QUEUE_SIZE", 128),
 		WorkerConcurrency:     envIntOrDefault("DETECTION_WORKERS", 2),

@@ -11,7 +11,9 @@ Then point the AI worker at the file:
 
     YOLO_MODEL_PATH=/path/to/yolov8n.onnx uvicorn app.main:app ...
 
-Or for Docker users this is handled automatically by the multi-stage Dockerfile.
+For Docker users, export the model ahead of time and either:
+- place it at ./model.onnx before building the image, or
+- mount it to /model/model.onnx at runtime.
 """
 
 import argparse

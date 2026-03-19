@@ -21,13 +21,9 @@ type Client struct {
 	http     *http.Client
 }
 
-func NewClient(baseURL string, timeout time.Duration) *Client {
-	u := strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if u == "" {
-		u = "http://127.0.0.1:8090"
-	}
+func NewClient(baseURL string, timeout time.Duration, aiMode string) *Client {
 	return &Client{
-		baseURLs: buildDetectorURLs(u),
+		baseURLs: buildDetectorURLs(baseURL, aiMode),
 		http: &http.Client{
 			Timeout: timeout,
 		},
@@ -156,24 +152,35 @@ func (c *Client) Healthy() bool {
 	return false
 }
 
-func buildDetectorURLs(primary string) []string {
-	candidates := []string{strings.TrimRight(primary, "/")}
+func buildDetectorURLs(primary string, aiMode string) []string {
+	mode := NormalizeAIMode(aiMode)
+	normalizedPrimary := strings.TrimRight(strings.TrimSpace(primary), "/")
+	if normalizedPrimary == "" {
+		if mode == AIModeRemote {
+			return nil
+		}
+		normalizedPrimary = defaultLocalDetectorURL
+	}
 
-	u, err := url.Parse(primary)
+	candidates := []string{normalizedPrimary}
+
+	u, err := url.Parse(normalizedPrimary)
 	if err == nil {
 		host := strings.ToLower(u.Hostname())
-		switch host {
-		case "ai-worker":
-			candidates = append(candidates,
-				"http://rtspanda-ai-worker:8090",
-				"http://host.docker.internal:8090",
-				"http://127.0.0.1:8090",
-				"http://localhost:8090",
-			)
-		case "127.0.0.1", "localhost":
-			candidates = append(candidates, "http://ai-worker:8090", "http://rtspanda-ai-worker:8090")
-		default:
-			// No host-specific fallback.
+		if mode == AIModeLocal {
+			switch host {
+			case "ai-worker":
+				candidates = append(candidates,
+					"http://rtspanda-ai-worker:8090",
+					"http://host.docker.internal:8090",
+					"http://127.0.0.1:8090",
+					"http://localhost:8090",
+				)
+			case "127.0.0.1", "localhost":
+				candidates = append(candidates, "http://ai-worker:8090", "http://rtspanda-ai-worker:8090")
+			default:
+				// No host-specific fallback.
+			}
 		}
 	}
 
@@ -191,7 +198,10 @@ func buildDetectorURLs(primary string) []string {
 		out = append(out, candidate)
 	}
 	if len(out) == 0 {
-		return []string{"http://127.0.0.1:8090"}
+		if mode == AIModeRemote {
+			return nil
+		}
+		return []string{defaultLocalDetectorURL}
 	}
 	return out
 }

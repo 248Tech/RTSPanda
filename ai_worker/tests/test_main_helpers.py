@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import tempfile
 import time
 import types
 from pathlib import Path
@@ -22,8 +23,11 @@ def import_main_with_fake_onnx(
     """Import app.main with a fake onnxruntime module and optional env overrides."""
 
     for key in [
+        "MODEL_SOURCE",
+        "MODEL_PATH",
         "YOLO_PI_MODE",
         "YOLO_MODEL_PATH",
+        "YOLO_MODEL_URL",
         "YOLO_CONFIDENCE",
         "YOLO_IOU",
         "YOLO_MAX_DETECTIONS",
@@ -49,6 +53,13 @@ def import_main_with_fake_onnx(
     if env:
         for key, value in env.items():
             monkeypatch.setenv(key, str(value))
+
+    if not ((env and "MODEL_PATH" in env) or (env and "YOLO_MODEL_PATH" in env)):
+        handle = tempfile.NamedTemporaryFile(suffix=".onnx", delete=False)
+        handle.write(b"fake-onnx-model")
+        handle.flush()
+        handle.close()
+        monkeypatch.setenv("MODEL_PATH", handle.name)
 
     class FakeSessionOptions:
         def __init__(self):
@@ -153,6 +164,7 @@ def test_health_reports_degraded_when_model_disabled(monkeypatch: pytest.MonkeyP
     assert payload["status"] == "degraded"
     assert payload["model_loaded"] is False
     assert "YOLO_ENABLE_MODEL" in payload["model_error"]
+    assert payload["model_source"] == "remote"
 
 
 def test_apply_source_limits_downscales_large_image(monkeypatch: pytest.MonkeyPatch):
@@ -213,3 +225,51 @@ def test_model_size_limit_can_force_degraded_mode(monkeypatch: pytest.MonkeyPatc
     assert payload["status"] == "degraded"
     assert payload["model_loaded"] is False
     assert "YOLO_MAX_MODEL_MB" in payload["model_error"]
+
+
+def test_model_source_local_missing_can_degrade(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    model_path = tmp_path / "missing-local-model.onnx"
+
+    main = import_main_with_fake_onnx(
+        monkeypatch,
+        env={
+            "MODEL_SOURCE": "local",
+            "MODEL_PATH": str(model_path),
+            "YOLO_MODEL_REQUIRED": "false",
+        },
+    )
+
+    payload = main.health()
+
+    assert payload["status"] == "degraded"
+    assert payload["model_loaded"] is False
+    assert payload["model_source"] == "local"
+    assert "local model required but missing" in payload["model_error"]
+
+
+def test_model_source_local_missing_can_fail_fast(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    model_path = tmp_path / "missing-required-model.onnx"
+
+    with pytest.raises(RuntimeError) as exc_info:
+        import_main_with_fake_onnx(
+            monkeypatch,
+            env={
+                "MODEL_SOURCE": "local",
+                "MODEL_PATH": str(model_path),
+                "YOLO_MODEL_REQUIRED": "true",
+            },
+        )
+
+    assert "local model required but missing" in str(exc_info.value)
+
+
+def test_health_reports_model_url_configuration(monkeypatch: pytest.MonkeyPatch):
+    main = import_main_with_fake_onnx(
+        monkeypatch,
+        env={"YOLO_MODEL_URL": "https://example.invalid/model.onnx"},
+    )
+
+    payload = main.health()
+
+    assert payload["model_source"] == "remote"
+    assert payload["model_url_configured"] is True

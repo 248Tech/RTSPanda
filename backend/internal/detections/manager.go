@@ -18,6 +18,8 @@ import (
 type Config struct {
 	FFmpegBin             string
 	DetectorURL           string
+	AIMode                string
+	AIWorkerURL           string
 	DefaultSampleInterval time.Duration
 	QueueSize             int
 	WorkerConcurrency     int
@@ -43,6 +45,8 @@ type Manager struct {
 	workerCount    int
 	samplerEnabled bool
 	notifier       AlertNotifier
+	aiMode         string
+	aiWorkerURL    string
 
 	mu      sync.Mutex
 	ctx     context.Context
@@ -67,8 +71,12 @@ func NewManager(dataDir string, repo *Repository, cfg Config) *Manager {
 	if cfg.FFmpegBin == "" {
 		cfg.FFmpegBin = "ffmpeg"
 	}
-	if cfg.DetectorURL == "" {
-		cfg.DetectorURL = "http://127.0.0.1:8090"
+	aiMode := NormalizeAIMode(cfg.AIMode)
+	aiWorkerURL := strings.TrimRight(strings.TrimSpace(cfg.AIWorkerURL), "/")
+	if resolved, err := ResolveAIConfig(aiMode, cfg.DetectorURL, aiWorkerURL); err == nil {
+		cfg.DetectorURL = resolved.DetectorURL
+		aiWorkerURL = resolved.AIWorkerURL
+		aiMode = resolved.Mode
 	}
 
 	ffmpegBin, ffmpegOK := resolveFFmpeg(cfg.FFmpegBin)
@@ -78,7 +86,7 @@ func NewManager(dataDir string, repo *Repository, cfg Config) *Manager {
 
 	manager := &Manager{
 		repo:           repo,
-		client:         NewClient(cfg.DetectorURL, 30*time.Second),
+		client:         NewClient(cfg.DetectorURL, 30*time.Second, aiMode),
 		ffmpegBin:      ffmpegBin,
 		snapshotRoot:   filepath.Join(dataDir, "snapshots", "detections"),
 		defaultSample:  cfg.DefaultSampleInterval,
@@ -86,9 +94,16 @@ func NewManager(dataDir string, repo *Repository, cfg Config) *Manager {
 		workerCount:    cfg.WorkerConcurrency,
 		samplerEnabled: ffmpegOK,
 		notifier:       cfg.Notifier,
+		aiMode:         aiMode,
+		aiWorkerURL:    aiWorkerURL,
 		cancels:        make(map[string]context.CancelFunc),
 	}
-	log.Printf("detections: detector urls=%s", strings.Join(manager.client.BaseURLs(), ", "))
+	log.Printf(
+		"detections: ai_mode=%s ai_worker_url=%s detector_urls=%s",
+		manager.aiMode,
+		manager.aiWorkerURL,
+		strings.Join(manager.client.BaseURLs(), ", "),
+	)
 	return manager
 }
 
@@ -223,6 +238,8 @@ func (m *Manager) Health() Health {
 	}
 	return Health{
 		Status:            status,
+		AIMode:            m.aiMode,
+		AIWorkerURL:       m.aiWorkerURL,
 		DetectorURL:       m.client.BaseURL(),
 		DetectorHealthy:   detectorHealthy,
 		QueueDepth:        len(m.queue),

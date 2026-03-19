@@ -1,153 +1,233 @@
 # RTSPanda
 
-Self-hosted RTSP camera monitoring with browser playback, recording, AI detection, and stream orchestration.
+RTSPanda is a self-hosted, local-first RTSP camera platform built for fast browser viewing, practical recording workflows, and modular AI detection that can run either on one machine or across a lightweight Pi + remote worker topology.
 
-## Overview
-RTSPanda combines:
-- A Go backend API for camera, stream, detection, alert, and recording workflows.
-- A React frontend for dashboard and operations.
-- A Python AI worker (FastAPI + ONNX Runtime) for object detection.
-- mediamtx for RTSP ingestion and HLS output.
+**Project tags:** `rtsp` `video-surveillance` `computer-vision` `golang` `react` `fastapi` `onnxruntime` `raspberry-pi` `docker-compose` `homelab`
 
-Primary goals:
-- No cloud dependency for core operation.
-- Local-first deployment (native or Docker Compose).
-- Practical controls for low-power hosts, including Raspberry Pi.
+## Why RTSPanda
+- Fast browser playback through `mediamtx` and HLS, without exposing camera RTSP feeds directly to the browser
+- Local-first architecture with no required cloud dependency for core operation
+- Modular AI pipeline: run detection locally or forward frames to a remote AI worker
+- Raspberry Pi-friendly deployment path with deterministic ONNX-only AI builds
+- Production-minded runtime choices: health checks, resource caps, queue-based detection, graceful degradation, and multi-arch Docker support
 
-## Installation and Setup
-### Prerequisites
-- Docker + Docker Compose plugin (recommended path)
-- Or native toolchain: Go 1.26+, Node.js 18+, Python 3.12+
-- RTSP camera URLs
+## Engineering Highlights
+- **Backend:** Go 1.26 API, camera orchestration, detection scheduling, stream management, alerts, recordings, and SQLite-backed state
+- **Frontend:** React + TypeScript + Vite SPA embedded into the backend for a clean single-app deployment
+- **AI worker:** FastAPI + ONNX Runtime inference service with Pi-aware throttling and explicit degraded-mode behavior
+- **Streaming layer:** `mediamtx` for RTSP ingest and HLS output
+- **Deployment model:** single-machine standard stack, Pi-only streaming node, or Pi + remote AI worker cluster
 
-### Recommended: Docker Compose
+## Architecture
+
+```text
+RTSP Cameras
+    ↓
+mediamtx
+    ↓
+Go backend API + embedded frontend
+    ↓
+Detection scheduler / queue
+    ↓
+FastAPI AI worker (local or remote)
+```
+
+In the default workflow, `rtspanda` and `ai-worker` run together. In cluster mode, the Pi keeps RTSP ingest, playback, and recording local while forwarding sampled frames to a second machine for inference.
+
+## Choose Your Setup
+
+| Mode | Best For | Command |
+|------|----------|---------|
+| Standard | x86, laptops, desktops, single-node homelab installs | `docker compose up --build -d` |
+| Pi Standalone | Raspberry Pi running UI + streaming only | `./scripts/pi-up.sh` |
+| Pi + AI | Raspberry Pi for ingest/UI plus remote AI worker | `AI_WORKER_URL=http://<host>:8090 ./scripts/pi-up.sh` |
+
+## Full Setup Guide
+### 1. Standard Mode
+
+Best for users who want the existing single-machine experience with the least setup.
+
+Requirements:
+- Docker Engine
+- Docker Compose plugin
+
+Setup:
+
 ```bash
 git clone https://github.com/248Tech/RTSPanda.git
 cd RTSPanda
-chmod +x ./scripts/pi-*.sh
-./scripts/pi-up.sh
-```
-
-If you are not on Pi and want the plain compose path:
-```bash
 docker compose up --build -d
 ```
 
-Stop services:
-```bash
-./scripts/pi-down.sh
-# or
-docker compose down
-```
+Verify:
 
-### Native Build (without Docker)
-Windows:
-```powershell
-.\build.ps1
-.\backend\rtspanda.exe
-```
-
-macOS/Linux:
-```bash
-make build
-./backend/rtspanda
-```
-
-### Authentication Setup
-Auth middleware is enabled by default in backend config.
-Set token before startup when auth is enabled:
-
-```bash
-export AUTH_ENABLED=true
-export AUTH_TOKEN="replace-with-long-random-token"
-```
-
-Windows PowerShell:
-```powershell
-$env:AUTH_ENABLED="true"
-$env:AUTH_TOKEN="replace-with-long-random-token"
-```
-
-## Usage
-### Start and Access
-- Open `http://localhost:8080`
-- Add cameras in Settings
-- View streams in dashboard/multi-view
-
-### Core Operations
-- Camera CRUD and stream status via API/UI
-- Per-camera recording management
-- Detection events and snapshots
-- Discord notification/test actions
-
-### Health and Diagnostics
 ```bash
 curl -s http://127.0.0.1:8080/api/v1/health
 curl -s http://127.0.0.1:8080/api/v1/health/ready
 curl -s http://127.0.0.1:8080/api/v1/detections/health
 ```
 
-### AI Worker on Raspberry Pi
-Suggested baseline environment tuning:
+Open:
+- `http://localhost:8080`
+
+Optional explicit full-profile alias:
+
 ```bash
-YOLO_PI_MODE=on
-YOLO_ORT_INTRA_THREADS=1
-YOLO_ORT_INTER_THREADS=1
-YOLO_MIN_REQUEST_INTERVAL_MS=750
-YOLO_BUSY_POLICY=drop
-YOLO_MAX_SOURCE_SIDE=1280
+docker compose --profile full up --build -d stack-full
 ```
 
-Fallback when model/runtime is too heavy:
+### 2. Pi Standalone
+
+Best for Raspberry Pi 4/5 users who want reliable first-run streaming, recording, and UI without paying the cost of building or running the AI worker locally.
+
+Requirements:
+- Raspberry Pi OS 64-bit recommended
+- Docker Engine
+- Docker Compose plugin
+
+Setup:
+
 ```bash
-YOLO_MODEL_REQUIRED=false
-YOLO_FALLBACK_MODE=empty
-YOLO_ENABLE_MODEL=false
+git clone https://github.com/248Tech/RTSPanda.git
+cd RTSPanda
+chmod +x ./scripts/pi-*.sh
+./scripts/pi-preflight.sh
+./scripts/pi-up.sh
 ```
 
-## Architecture Summary
-### Backend (`backend/`)
-- Entry: `backend/cmd/rtspanda/main.go`
-- API/router: `backend/internal/api/router.go`
-- Stream manager: `backend/internal/streams/*`
-- Auth module: `backend/internal/auth/*`
+Equivalent manual command:
 
-### Frontend (`frontend/`)
-- Entry: `frontend/src/main.tsx`
-- App shell: `frontend/src/App.tsx`
-- Auth flow: `frontend/src/auth/*`
+```bash
+docker compose --profile pi up --build -d rtspanda-pi
+```
 
-### AI Worker (`ai_worker/`)
-- Entry: `ai_worker/app/main.py`
-- Runtime config via `YOLO_*` environment variables
-- Tests under `ai_worker/tests/`
+Behavior:
+- `rtspanda-pi` runs backend + embedded frontend + `mediamtx`
+- no local AI worker is started
+- detections stay degraded until `AI_WORKER_URL` or `DETECTOR_URL` is configured
 
-### Streaming (`mediamtx/`)
-- Template: `mediamtx/mediamtx.yml.tmpl`
-- Runtime tuning documented in `docs/streaming-tuning.md`
+Verify:
+
+```bash
+curl -s http://127.0.0.1:8080/api/v1/health
+curl -s http://127.0.0.1:8080/api/v1/detections/health
+```
+
+### 3. Pi + AI
+
+Best for a distributed deployment where the Pi handles cameras and the second machine handles inference.
+
+#### Step A: start the AI worker on the second machine
+
+```bash
+git clone https://github.com/248Tech/RTSPanda.git
+cd RTSPanda
+docker compose --profile ai-worker up --build -d ai-worker-standalone
+```
+
+Verify the worker:
+
+```bash
+curl -s http://127.0.0.1:8090/health
+```
+
+#### Step B: point the Pi at the AI worker
+
+```bash
+git clone https://github.com/248Tech/RTSPanda.git
+cd RTSPanda
+chmod +x ./scripts/pi-*.sh
+export AI_WORKER_URL="http://192.168.1.50:8090"
+./scripts/pi-up.sh
+```
+
+Equivalent manual command on the Pi:
+
+```bash
+docker compose --profile pi up --build -d rtspanda-pi
+```
+
+Verify from the Pi:
+
+```bash
+curl -s http://127.0.0.1:8080/api/v1/detections/health
+```
+
+Expected detection-health fields:
+- `ai_mode` = `remote`
+- `ai_worker_url` = your remote AI worker
+- `detector_url` = resolved detector target
+
+## Model Setup
+The Docker AI worker is ONNX-only and never exports or converts models at runtime.
+
+### Default remote model download
+
+```bash
+export MODEL_SOURCE=remote
+export YOLO_MODEL_NAME=yolov8n
+export YOLO_MODEL_RELEASE=v8.3.0
+```
+
+Optional mirror:
+
+```bash
+export YOLO_MODEL_URL="https://your-mirror.example/yolov8n.onnx"
+```
+
+### Local prebuilt model
+
+Place a prebuilt ONNX file at either location before building:
+
+```text
+./model.onnx
+./ai_worker/model/model.onnx
+```
+
+Then build with:
+
+```bash
+export MODEL_SOURCE=local
+docker compose up --build -d
+```
+
+Runtime mount target for custom deployments:
+
+```text
+/model/model.onnx
+```
 
 ## Configuration Highlights
-- `AUTH_ENABLED`, `AUTH_TOKEN`, `AUTH_COOKIE_*`
-- `MEDIAMTX_SOURCE_ON_DEMAND`, `MEDIAMTX_HLS_*`
-- `DETECTOR_URL`, `DETECTION_*`
-- `YOLO_*` tuning variables for AI runtime behavior
+- `AI_MODE=local|remote`
+- `AI_WORKER_URL=http://<host>:8090`
+- `DETECTOR_URL=http://<custom-detector>:8090`
+- `MODEL_SOURCE=local|remote`
+- `MODEL_PATH=/model/model.onnx`
+- `YOLO_MODEL_URL`, `YOLO_MODEL_NAME`, `YOLO_MODEL_RELEASE`
+- `MEDIAMTX_*` tuning for stream latency and on-demand behavior
+- `AUTH_ENABLED`, `AUTH_TOKEN` for protected deployments
 
-## Testing
+## Documentation
+- [Raspberry Pi guide](./docs/raspberry-pi.md)
+- [Cluster mode guide](./docs/cluster-mode.md)
+- [Raspberry Pi first run](./docs/raspberry-pi-first-run.md)
+- [Raspberry Pi deployment](./docs/raspberry-pi-deployment.md)
+- [Streaming tuning](./docs/streaming-tuning.md)
+- [AI Pi compatibility](./docs/ai-pi-compatibility.md)
+- [Testing strategy](./docs/testing-strategy.md)
+
+## Development and Validation
+
 ```bash
 cd backend && go test ./internal/...
 cd frontend && npm run test -- --config vitest.config.ts
 cd ai_worker && python -m pytest -q
 ```
 
-Testing strategy document:
-- `docs/testing-strategy.md`
-
-## Related Docs
-- `docs/raspberry-pi-first-run.md`
-- `docs/raspberry-pi-deployment.md`
-- `docs/streaming-tuning.md`
-- `docs/ai-pi-compatibility.md`
-- `human/USER_GUIDE.md`
+## Who It’s For
+- Homelab operators who want local camera control and simple deployment
+- Developers interested in Go + React + FastAPI + ONNX Runtime systems
+- Small teams or operators who want a modular edge-video stack with a credible Pi story
 
 ## License
 MIT (`LICENSE`).

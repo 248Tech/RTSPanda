@@ -1,95 +1,137 @@
+x-ai-worker-common: &ai-worker-common
+  build:
+    context: .
+    dockerfile: ai_worker/Dockerfile
+    args:
+      MODEL_SOURCE: ${MODEL_SOURCE:-remote}
+      YOLO_MODEL_NAME: ${YOLO_MODEL_NAME:-yolov8n}
+      YOLO_MODEL_RELEASE: ${YOLO_MODEL_RELEASE:-v8.3.0}
+      YOLO_MODEL_URL: ${YOLO_MODEL_URL:-}
+  image: rtspanda-ai-worker:latest
+  environment:
+    MODEL_SOURCE: "${MODEL_SOURCE:-remote}"
+    MODEL_PATH: "${MODEL_PATH:-/model/model.onnx}"
+    YOLO_MODEL_PATH: "${MODEL_PATH:-/model/model.onnx}"
+    YOLO_MODEL_URL: "${YOLO_MODEL_URL:-}"
+    YOLO_CONFIDENCE: "${YOLO_CONFIDENCE:-0.25}"
+    YOLO_IOU: "${YOLO_IOU:-0.45}"
+    YOLO_MAX_DETECTIONS: "${YOLO_MAX_DETECTIONS:-100}"
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 20s
+  restart: unless-stopped
+  mem_limit: 512m
+  deploy:
+    resources:
+      limits:
+        memory: 512m
+
+x-rtspanda-common: &rtspanda-common
+  build:
+    context: .
+    args:
+      MEDIAMTX_VERSION: ${MEDIAMTX_VERSION:-v1.12.3}
+  image: rtspanda:latest
+  ports:
+    - "8080:8080"
+  environment:
+    DATA_DIR: /data
+    PORT: "8080"
+    MEDIAMTX_BIN: /usr/local/bin/mediamtx
+    FFMPEG_BIN: /usr/bin/ffmpeg
+    AUTH_ENABLED: "${AUTH_ENABLED:-false}"
+    AUTH_TOKEN: "${AUTH_TOKEN:-}"
+    MEDIAMTX_SOURCE_ON_DEMAND: "${MEDIAMTX_SOURCE_ON_DEMAND:-true}"
+    MEDIAMTX_SOURCE_ON_DEMAND_CLOSE_AFTER: "${MEDIAMTX_SOURCE_ON_DEMAND_CLOSE_AFTER:-10s}"
+    MEDIAMTX_HLS_ALWAYS_REMUX: "${MEDIAMTX_HLS_ALWAYS_REMUX:-false}"
+    MEDIAMTX_HLS_SEGMENT_COUNT: "${MEDIAMTX_HLS_SEGMENT_COUNT:-3}"
+    MEDIAMTX_HLS_SEGMENT_DURATION: "${MEDIAMTX_HLS_SEGMENT_DURATION:-2s}"
+    MEDIAMTX_HLS_PART_DURATION: "${MEDIAMTX_HLS_PART_DURATION:-200ms}"
+    AI_MODE: "${AI_MODE:-local}"
+    AI_WORKER_URL: "${AI_WORKER_URL:-}"
+    DETECTOR_URL: "${DETECTOR_URL:-}"
+    DETECTION_SAMPLE_INTERVAL_SECONDS: "${DETECTION_SAMPLE_INTERVAL_SECONDS:-30}"
+    DETECTION_WORKERS: "${DETECTION_WORKERS:-1}"
+    DETECTION_QUEUE_SIZE: "${DETECTION_QUEUE_SIZE:-32}"
+    GOMEMLIMIT: "${GOMEMLIMIT:-200MiB}"
+  volumes:
+    - ./data:/data
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/health"]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 20s
+  restart: unless-stopped
+  mem_limit: 512m
+  deploy:
+    resources:
+      limits:
+        memory: 512m
+
 services:
+  # Default local stack. This preserves the existing `docker compose up --build -d`
+  # workflow for x86/GPU users and for single-machine development.
   ai-worker:
-    build:
-      context: .
-      dockerfile: ai_worker/Dockerfile
-      args:
-        # Change YOLO_MODEL_NAME to yolov8s/yolov8m etc. to use a larger model.
-        # Larger models use more RAM and are slower on CPU — yolov8n is best for 4GB hosts.
-        YOLO_MODEL_NAME: ${YOLO_MODEL_NAME:-yolov8n}
-        YOLO_MODEL_RELEASE: ${YOLO_MODEL_RELEASE:-v8.3.0}
-        # Optional explicit ONNX URL override (for private mirrors or pinned assets).
-        YOLO_MODEL_URL: ${YOLO_MODEL_URL:-}
-    image: rtspanda-ai-worker:latest
+    <<: *ai-worker-common
     container_name: rtspanda-ai-worker
-    environment:
-      # YOLO_MODEL_PATH is baked into the image at /model/yolov8n.onnx
-      YOLO_CONFIDENCE: "${YOLO_CONFIDENCE:-0.25}"
-      YOLO_IOU: "${YOLO_IOU:-0.45}"
-      # 100 max detections is plenty; 500 wastes NMS memory
-      YOLO_MAX_DETECTIONS: "${YOLO_MAX_DETECTIONS:-100}"
     expose:
       - "8090"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=3)"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    restart: unless-stopped
-    mem_limit: 512m
-    deploy:
-      resources:
-        limits:
-          # onnxruntime + numpy + model: ~150-250 MB steady state.
-          # Cap at 512 MB to prevent runaway and leave headroom on 4 GB hosts.
-          memory: 512m
 
   rtspanda:
-    # This service includes backend + embedded frontend + bundled mediamtx binary.
-    build:
-      context: .
-      args:
-        MEDIAMTX_VERSION: ${MEDIAMTX_VERSION:-v1.12.3}
-    image: rtspanda:latest
+    <<: *rtspanda-common
     container_name: rtspanda
-    ports:
-      - "8080:8080"
+    depends_on:
+      ai-worker:
+        condition: service_healthy
+        required: false
+
+  # Pi-first lightweight mode: backend + mediamtx only. Detection is disabled
+  # until AI_WORKER_URL (or DETECTOR_URL) points at a remote AI worker.
+  rtspanda-pi:
+    <<: *rtspanda-common
+    container_name: rtspanda-pi
+    profiles: ["pi"]
     environment:
       DATA_DIR: /data
       PORT: "8080"
       MEDIAMTX_BIN: /usr/local/bin/mediamtx
       FFMPEG_BIN: /usr/bin/ffmpeg
-      # For first-run Pi deploys this defaults to disabled auth.
-      # Set AUTH_ENABLED=true and AUTH_TOKEN=<secure-token> for protected access.
       AUTH_ENABLED: "${AUTH_ENABLED:-false}"
       AUTH_TOKEN: "${AUTH_TOKEN:-}"
-      # Streaming defaults prioritize scale + stability:
-      # on-demand pulls, TCP transport, and low-latency HLS window.
       MEDIAMTX_SOURCE_ON_DEMAND: "${MEDIAMTX_SOURCE_ON_DEMAND:-true}"
       MEDIAMTX_SOURCE_ON_DEMAND_CLOSE_AFTER: "${MEDIAMTX_SOURCE_ON_DEMAND_CLOSE_AFTER:-10s}"
       MEDIAMTX_HLS_ALWAYS_REMUX: "${MEDIAMTX_HLS_ALWAYS_REMUX:-false}"
       MEDIAMTX_HLS_SEGMENT_COUNT: "${MEDIAMTX_HLS_SEGMENT_COUNT:-3}"
       MEDIAMTX_HLS_SEGMENT_DURATION: "${MEDIAMTX_HLS_SEGMENT_DURATION:-2s}"
       MEDIAMTX_HLS_PART_DURATION: "${MEDIAMTX_HLS_PART_DURATION:-200ms}"
-      DETECTOR_URL: http://ai-worker:8090
+      AI_MODE: "remote"
+      AI_WORKER_URL: "${AI_WORKER_URL:-}"
+      DETECTOR_URL: "${DETECTOR_URL:-}"
       DETECTION_SAMPLE_INTERVAL_SECONDS: "${DETECTION_SAMPLE_INTERVAL_SECONDS:-30}"
-      # 1 worker is enough — detection is I/O-bound (ffmpeg + HTTP to ai-worker).
-      # Reduces goroutine overhead on memory-constrained hosts.
       DETECTION_WORKERS: "${DETECTION_WORKERS:-1}"
-      # Smaller queue: 32 frames × ~2 KB struct = negligible, but signals
-      # back-pressure earlier instead of silently accumulating work.
       DETECTION_QUEUE_SIZE: "${DETECTION_QUEUE_SIZE:-32}"
-      # Tell the Go runtime to keep its heap under ~200 MB.
-      # Triggers GC more aggressively instead of growing without bound.
-      # Requires Go 1.19+ (project uses Go 1.26).
       GOMEMLIMIT: "${GOMEMLIMIT:-200MiB}"
-    volumes:
-      - ./data:/data
+
+  # Standalone AI-worker profile for a second machine or dedicated inference host.
+  ai-worker-standalone:
+    <<: *ai-worker-common
+    container_name: rtspanda-ai-worker-standalone
+    profiles: ["ai-worker"]
+    ports:
+      - "8090:8090"
+
+  # Explicit full profile alias for environments that want a named profile
+  # without changing the default unprofiled stack behavior.
+  stack-full:
+    image: alpine:3.22
+    profiles: ["full"]
+    command: ["sh", "-c", "tail -f /dev/null"]
     depends_on:
       ai-worker:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    restart: unless-stopped
-    mem_limit: 512m
-    deploy:
-      resources:
-        limits:
-          # Go backend + mediamtx subprocess + active HLS buffers.
-          # mediamtx with hlsSegmentCount=3 uses ~30 MB per active stream.
-          memory: 512m
+      rtspanda:
+        condition: service_healthy

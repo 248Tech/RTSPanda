@@ -18,6 +18,8 @@ backend/rtspanda
 # Frontend build output
 frontend/dist/
 frontend/node_modules/
+model.onnx
+ai_worker/model/*.onnx
 
 # Embedded frontend (populated by make build / build.ps1); keep .gitkeep so dir exists
 backend/internal/api/web/*

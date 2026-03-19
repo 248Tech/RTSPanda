@@ -21,6 +21,8 @@ export interface DetectionEvent {
 
 export interface DetectionHealth {
   status: string
+  ai_mode?: string
+  ai_worker_url?: string
   detector_url: string
   detector_healthy: boolean
   queue_depth: number

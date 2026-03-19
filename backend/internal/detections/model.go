@@ -44,6 +44,8 @@ type Snapshot struct {
 
 type Health struct {
 	Status            string `json:"status"`
+	AIMode            string `json:"ai_mode"`
+	AIWorkerURL       string `json:"ai_worker_url,omitempty"`
 	DetectorURL       string `json:"detector_url"`
 	DetectorHealthy   bool   `json:"detector_healthy"`
 	QueueDepth        int    `json:"queue_depth"`

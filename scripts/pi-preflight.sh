@@ -5,6 +5,7 @@
 set -u
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+PI_DEPLOYMENT_MODE="${PI_DEPLOYMENT_MODE:-pi}"
 FAIL_COUNT=0
 WARN_COUNT=0
 
@@ -174,6 +175,12 @@ check_repo_container_support() {
     else
       warn "docker-compose.yml is missing expected services (rtspanda and/or ai-worker)"
     fi
+
+    if grep -q 'profiles: \["pi"\]' "$composefile" && grep -q 'profiles: \["ai-worker"\]' "$composefile" && grep -q 'profiles: \["full"\]' "$composefile"; then
+      pass "docker-compose.yml includes full, pi, and standalone AI worker profiles"
+    else
+      warn "docker-compose.yml does not appear to include the expected full/pi/ai-worker profiles"
+    fi
   else
     fail "docker-compose.yml not found at repo root"
   fi
@@ -195,6 +202,47 @@ check_pi_scripts() {
   fi
 }
 
+check_deployment_mode() {
+  case "$PI_DEPLOYMENT_MODE" in
+    pi)
+      pass "Pi deployment mode selected: lightweight RTSP/backend"
+      if [ -z "${AI_WORKER_URL:-}" ] && [ -z "${DETECTOR_URL:-}" ]; then
+        warn "AI_WORKER_URL/DETECTOR_URL not set; detections will stay degraded until a remote AI worker is configured"
+      else
+        pass "remote detector target configured for Pi mode"
+      fi
+      ;;
+    full)
+      pass "Pi deployment mode selected: full local stack"
+      ;;
+    ai-worker)
+      pass "Pi deployment mode selected: standalone AI worker"
+      ;;
+    *)
+      warn "unknown PI_DEPLOYMENT_MODE=${PI_DEPLOYMENT_MODE}; expected pi, full, or ai-worker"
+      ;;
+  esac
+}
+
+check_model_source() {
+  model_source="$(printf "%s" "${MODEL_SOURCE:-remote}" | tr '[:upper:]' '[:lower:]')"
+  case "$model_source" in
+    local)
+      if [ -f "$ROOT_DIR/model.onnx" ] || [ -f "$ROOT_DIR/ai_worker/model/model.onnx" ]; then
+        pass "local ONNX model found for MODEL_SOURCE=local"
+      else
+        fail "MODEL_SOURCE=local but no model file was found at ./model.onnx or ./ai_worker/model/model.onnx"
+      fi
+      ;;
+    remote|"")
+      pass "MODEL_SOURCE=${MODEL_SOURCE:-remote} will use prebuilt ONNX download during AI worker image build"
+      ;;
+    *)
+      fail "unsupported MODEL_SOURCE=${MODEL_SOURCE}"
+      ;;
+  esac
+}
+
 check_data_dir() {
   if [ -d "$ROOT_DIR/data" ]; then
     if [ -w "$ROOT_DIR/data" ]; then
@@ -213,10 +261,10 @@ printf "repo: %s\n\n" "$ROOT_DIR"
 check_architecture
 check_cmd_required git "install git first"
 check_cmd_required curl "install curl first"
-check_cmd_required make "install build-essential/make first"
-check_cmd_required go "install Go >= 1.26"
-check_cmd_required node "install Node.js >= 18"
-check_cmd_required npm "install npm with Node.js"
+check_cmd_optional make "install build-essential/make first for native builds"
+check_cmd_optional go "install Go >= 1.26 for native builds"
+check_cmd_optional node "install Node.js >= 18 for native builds"
+check_cmd_optional npm "install npm with Node.js for native builds"
 check_cmd_optional ffmpeg "install ffmpeg for frame capture/detections"
 check_go_version
 check_node_version
@@ -225,6 +273,13 @@ check_docker
 check_repo_container_support
 check_pi_scripts
 check_data_dir
+check_deployment_mode
+
+case "$PI_DEPLOYMENT_MODE" in
+  full|ai-worker)
+    check_model_source
+    ;;
+esac
 
 printf "\n"
 if [ "$FAIL_COUNT" -eq 0 ]; then

@@ -11,7 +11,9 @@ import (
 // web is populated at build time: copy frontend/dist contents into backend/internal/api/web,
 // then run go build. See Makefile or build script at repo root.
 //
-//go:embed web
+// Include the tracked .gitkeep placeholder so clean checkouts still compile
+// before frontend assets are copied into web/.
+//go:embed all:web
 var webEmbed embed.FS
 
 // fallbackHTML is served when index.html is not in the embed (e.g. go build without copying frontend).

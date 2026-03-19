@@ -7,6 +7,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 PI_DEPLOYMENT_MODE="${PI_DEPLOYMENT_MODE:-pi}"
 APP_URL="${APP_URL:-http://127.0.0.1:8080}"
 AI_WORKER_HEALTH_URL="${AI_WORKER_HEALTH_URL:-http://127.0.0.1:8090/health}"
+COMPOSE_FILES="-f docker-compose.yml"
 COMPOSE_PROFILE=""
 COMPOSE_SERVICES=""
 
@@ -20,6 +21,7 @@ fail() {
 select_mode() {
   case "$PI_DEPLOYMENT_MODE" in
     pi)
+      COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.standalone.yml"
       COMPOSE_PROFILE="--profile pi"
       COMPOSE_SERVICES="rtspanda-pi"
       if [ -z "${AI_WORKER_URL:-}" ] && [ -z "${DETECTOR_URL:-}" ]; then
@@ -30,6 +32,7 @@ select_mode() {
       COMPOSE_SERVICES="rtspanda ai-worker"
       ;;
     ai-worker)
+      COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.standalone.yml"
       COMPOSE_PROFILE="--profile ai-worker"
       COMPOSE_SERVICES="ai-worker-standalone"
       ;;
@@ -58,19 +61,19 @@ require_docker() {
 compose_up() {
   cd "$ROOT_DIR"
   info "validating docker compose configuration"
-  if [ -n "$COMPOSE_PROFILE" ]; then
-    # shellcheck disable=SC2086
-    docker compose $COMPOSE_PROFILE config -q || fail "docker compose config validation failed"
-    info "building and starting $COMPOSE_SERVICES"
-    # shellcheck disable=SC2086
-    docker compose $COMPOSE_PROFILE up --build -d $COMPOSE_SERVICES || fail "docker compose up failed"
-  else
-    docker compose config -q || fail "docker compose config validation failed"
-    info "building and starting $COMPOSE_SERVICES"
-    # shellcheck disable=SC2086
-    docker compose up --build -d $COMPOSE_SERVICES || fail "docker compose up failed"
-  fi
-  docker compose ps
+  # shellcheck disable=SC2086
+  docker compose $COMPOSE_FILES $COMPOSE_PROFILE config -q || fail "docker compose config validation failed"
+
+  info "building $COMPOSE_SERVICES"
+  # shellcheck disable=SC2086
+  docker compose $COMPOSE_FILES $COMPOSE_PROFILE build $COMPOSE_SERVICES || fail "docker compose build failed"
+
+  info "starting $COMPOSE_SERVICES"
+  # shellcheck disable=SC2086
+  docker compose $COMPOSE_FILES $COMPOSE_PROFILE up -d --no-build $COMPOSE_SERVICES || fail "docker compose up failed"
+
+  # shellcheck disable=SC2086
+  docker compose $COMPOSE_FILES ps
 }
 
 wait_for_url() {
@@ -124,20 +127,20 @@ print_next_steps() {
     ai-worker)
       info "standalone AI worker deployment completed"
       printf "Health: %s\n" "$AI_WORKER_HEALTH_URL"
-      printf "Logs: docker compose logs -f ai-worker-standalone\n"
+      printf "Logs: docker compose %s logs -f ai-worker-standalone\n" "$COMPOSE_FILES"
       ;;
     pi)
       info "Pi lightweight deployment completed"
       printf "Open: %s\n" "$APP_URL"
-      printf "Logs: docker compose logs -f rtspanda-pi\n"
+      printf "Logs: docker compose %s logs -f rtspanda-pi\n" "$COMPOSE_FILES"
       ;;
     full)
       info "full Pi deployment completed"
       printf "Open: %s\n" "$APP_URL"
-      printf "Logs: docker compose logs -f rtspanda ai-worker\n"
+      printf "Logs: docker compose %s logs -f rtspanda ai-worker\n" "$COMPOSE_FILES"
       ;;
   esac
-  printf "Stop: docker compose down\n"
+  printf "Stop: docker compose %s down\n" "$COMPOSE_FILES"
 }
 
 select_mode

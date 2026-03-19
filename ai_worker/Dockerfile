@@ -13,7 +13,7 @@
 FROM python:3.12-slim AS model-resolver
 
 ARG MODEL_SOURCE=remote
-ARG YOLO_MODEL_NAME=yolov8n
+ARG YOLO_MODEL_NAME=yolo11n
 ARG YOLO_MODEL_RELEASE=v8.3.0
 ARG YOLO_MODEL_URL
 
@@ -41,13 +41,13 @@ RUN --mount=type=bind,source=.,target=/context,readonly \
       exit 1; \
     elif [ -n "${YOLO_MODEL_URL:-}" ]; then \
       curl -fsSL "${YOLO_MODEL_URL}" -o /model/model.onnx || { \
-        echo "failed to download model from YOLO_MODEL_URL=${YOLO_MODEL_URL}" >&2; exit 1; \
+        echo "failed to download model from YOLO_MODEL_URL=${YOLO_MODEL_URL}; provide a valid URL or use MODEL_SOURCE=local with ./model.onnx" >&2; exit 1; \
       }; \
     else \
       model_file="${YOLO_MODEL_NAME}.onnx"; \
       model_url="https://github.com/ultralytics/assets/releases/download/${YOLO_MODEL_RELEASE}/${model_file}"; \
       curl -fsSL "${model_url}" -o /model/model.onnx || { \
-        echo "failed to download prebuilt ONNX model ${model_file} from ${model_url}" >&2; exit 1; \
+        echo "failed to download prebuilt ONNX model ${model_file} from ${model_url}; set YOLO_MODEL_URL or provide ./model.onnx / ./ai_worker/model/model.onnx" >&2; exit 1; \
       }; \
     fi; \
     test -s /model/model.onnx

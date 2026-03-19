@@ -37,7 +37,7 @@ The worker now includes explicit low-power controls:
 
 ## 3) CPU-Only Inference Expectations (Realistic)
 
-These are practical planning ranges for **YOLOv8n ONNX** on CPU-only Pi, assuming one worker and no GPU/NPU acceleration:
+These are practical planning ranges for a **nano-class ONNX detector such as `yolo11n`** on CPU-only Pi, assuming one worker and no GPU/NPU acceleration:
 
 - **Pi 5 (8 GB)**, 640 input: typically **~250-450 ms/inference** (about 2-4 FPS max sustained detector throughput).
 - **Pi 4 (4-8 GB)**, 640 input: typically **~600-1200 ms/inference** (about 0.8-1.6 FPS).
@@ -47,7 +47,7 @@ Operational guidance:
 
 - For backend sampling, plan around **1 frame every 1-3 seconds per actively tracked camera** on Pi 4.
 - Use **single detector concurrency** and keep queue depth low.
-- Prefer `yolov8n` for Pi; larger variants (`s/m/l/x`) are usually too slow for practical multi-camera tracking.
+- Prefer `yolo11n` for Pi; larger variants (`s/m/l/x`) are usually too slow for practical multi-camera tracking.
 
 ## 4) Frame Processing Limits and Tunables
 
@@ -106,7 +106,7 @@ This keeps API compatibility while disabling heavy inference entirely.
 
 ## 6) Recommended Model/Runtime Adjustments
 
-- Prefer **YOLOv8n ONNX**.
+- Prefer **YOLO11n ONNX**.
 - Keep backend detection sampling conservative (seconds, not sub-second) on Pi.
 - Keep detector concurrency at 1 where possible.
 - Avoid large source frames; downscale before inference.

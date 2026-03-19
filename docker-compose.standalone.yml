@@ -1,0 +1,11 @@
+# Standalone-mode compose overlay.
+#
+# Use this file together with docker-compose.yml for Pi-only or AI-worker-only
+# deployments so unprofiled full-stack services do not remain active in the
+# combined project model.
+services:
+  ai-worker:
+    profiles: ["full"]
+
+  rtspanda:
+    profiles: ["full"]

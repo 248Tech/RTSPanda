@@ -33,7 +33,8 @@ PI_DEPLOYMENT_MODE=ai-worker ./scripts/pi-up.sh
 Or directly:
 
 ```bash
-docker compose --profile ai-worker up --build -d ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker build ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker up -d --no-build ai-worker-standalone
 ```
 
 ## Upgrades

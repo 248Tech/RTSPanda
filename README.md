@@ -98,7 +98,8 @@ chmod +x ./scripts/pi-*.sh
 Equivalent manual command:
 
 ```bash
-docker compose --profile pi up --build -d rtspanda-pi
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile pi build rtspanda-pi
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile pi up -d --no-build rtspanda-pi
 ```
 
 Behavior:
@@ -122,7 +123,8 @@ Best for a distributed deployment where the Pi handles cameras and the second ma
 ```bash
 git clone https://github.com/248Tech/RTSPanda.git
 cd RTSPanda
-docker compose --profile ai-worker up --build -d ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker build ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker up -d --no-build ai-worker-standalone
 ```
 
 Verify the worker:
@@ -144,7 +146,8 @@ export AI_WORKER_URL="http://192.168.1.50:8090"
 Equivalent manual command on the Pi:
 
 ```bash
-docker compose --profile pi up --build -d rtspanda-pi
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile pi build rtspanda-pi
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile pi up -d --no-build rtspanda-pi
 ```
 
 Verify from the Pi:
@@ -165,14 +168,14 @@ The Docker AI worker is ONNX-only and never exports or converts models at runtim
 
 ```bash
 export MODEL_SOURCE=remote
-export YOLO_MODEL_NAME=yolov8n
+export YOLO_MODEL_NAME=yolo11n
 export YOLO_MODEL_RELEASE=v8.3.0
 ```
 
 Optional mirror:
 
 ```bash
-export YOLO_MODEL_URL="https://your-mirror.example/yolov8n.onnx"
+export YOLO_MODEL_URL="https://your-mirror.example/yolo11n.onnx"
 ```
 
 ### Local prebuilt model

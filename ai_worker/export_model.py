@@ -1,15 +1,15 @@
 """
-Export a YOLOv8 .pt model to ONNX format for use with the RTSPanda AI worker.
+Export a YOLO .pt model to ONNX format for use with the RTSPanda AI worker.
 
 Usage (run once, requires ultralytics):
 
     pip install ultralytics
     python ai_worker/export_model.py
-    # produces ai_worker/yolov8n.onnx
+    # produces ai_worker/yolo11n.onnx
 
 Then point the AI worker at the file:
 
-    YOLO_MODEL_PATH=/path/to/yolov8n.onnx uvicorn app.main:app ...
+    YOLO_MODEL_PATH=/path/to/yolo11n.onnx uvicorn app.main:app ...
 
 For Docker users, export the model ahead of time and either:
 - place it at ./model.onnx before building the image, or
@@ -47,11 +47,11 @@ def export(model_name: str, output_dir: Path) -> Path:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Export YOLOv8 model to ONNX")
+    parser = argparse.ArgumentParser(description="Export YOLO model to ONNX")
     parser.add_argument(
         "--model",
-        default="yolov8n",
-        help="Model name without extension, e.g. yolov8n, yolov8s (default: yolov8n)",
+        default="yolo11n",
+        help="Model name without extension, e.g. yolo11n, yolo11s (default: yolo11n)",
     )
     parser.add_argument(
         "--output-dir",

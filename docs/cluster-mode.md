@@ -24,7 +24,8 @@ The transport stays simple:
 ```bash
 git clone https://github.com/248Tech/RTSPanda.git
 cd RTSPanda
-docker compose --profile ai-worker up --build -d ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker build ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker up -d --no-build ai-worker-standalone
 ```
 
 Health check:
@@ -50,7 +51,8 @@ export AI_WORKER_URL="http://192.168.1.50:8090"
 Equivalent manual command:
 
 ```bash
-docker compose --profile pi up --build -d rtspanda-pi
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile pi build rtspanda-pi
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile pi up -d --no-build rtspanda-pi
 ```
 
 ## 3. Verify the connection
@@ -76,8 +78,9 @@ Expected:
 
 ```bash
 export MODEL_SOURCE=remote
-export YOLO_MODEL_NAME=yolov8n
-docker compose --profile ai-worker up --build -d ai-worker-standalone
+export YOLO_MODEL_NAME=yolo11n
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker build ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker up -d --no-build ai-worker-standalone
 ```
 
 ### Use a local prebuilt model
@@ -85,12 +88,13 @@ docker compose --profile ai-worker up --build -d ai-worker-standalone
 ```bash
 cp /path/to/model.onnx ./model.onnx
 export MODEL_SOURCE=local
-docker compose --profile ai-worker up --build -d ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker build ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker up -d --no-build ai-worker-standalone
 ```
 
 You can also place the file at `./ai_worker/model/model.onnx`.
 
 ## Operational Notes
 - Keep the AI host and Pi on a stable LAN.
-- Prefer `yolov8n` for CPU-only deployments unless you have measured headroom.
+- Prefer `yolo11n` for CPU-only deployments unless you have measured headroom.
 - The default `docker compose up --build -d` workflow is unchanged and still runs the full local stack on a single machine.

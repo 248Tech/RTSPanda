@@ -4,7 +4,7 @@ x-ai-worker-common: &ai-worker-common
     dockerfile: ai_worker/Dockerfile
     args:
       MODEL_SOURCE: ${MODEL_SOURCE:-remote}
-      YOLO_MODEL_NAME: ${YOLO_MODEL_NAME:-yolov8n}
+      YOLO_MODEL_NAME: ${YOLO_MODEL_NAME:-yolo11n}
       YOLO_MODEL_RELEASE: ${YOLO_MODEL_RELEASE:-v8.3.0}
       YOLO_MODEL_URL: ${YOLO_MODEL_URL:-}
   image: rtspanda-ai-worker:latest

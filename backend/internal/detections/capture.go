@@ -12,6 +12,27 @@ import (
 	"github.com/rtspanda/rtspanda/internal/cameras"
 )
 
+// CaptureFrameToPath captures a single JPEG from the camera's RTSP stream and
+// writes it to outputPath. Used by external packages (e.g. snapshotai) that
+// manage their own snapshot directories.
+func CaptureFrameToPath(ctx context.Context, ffmpegBin, rtspURL, outputPath string) error {
+	args := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+		"-i", rtspURL,
+		"-frames:v", "1",
+		"-q:v", "2",
+		"-y",
+		outputPath,
+	}
+	output, err := runRTSPFFmpegCommand(ctx, ffmpegBin, args)
+	if err != nil {
+		_ = os.Remove(outputPath)
+		return fmt.Errorf("ffmpeg capture failed: %w (%s)", err, string(output))
+	}
+	return nil
+}
+
 func captureFrame(ffmpegBin string, rootDir string, camera cameras.Camera) (Snapshot, error) {
 	ts := time.Now().UTC()
 	cameraDir := filepath.Join(rootDir, camera.ID)

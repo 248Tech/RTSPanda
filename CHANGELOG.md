@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.0.9 - 2026-03-20
+
+### Added
+- First-class runtime deployment modes (`pi`, `standard`, `viewer`) with startup auto-detection and mode-gated subsystem startup.
+- Snapshot Intelligence Engine for Pi mode (`backend/internal/snapshotai`) with Claude/OpenAI vision providers and structured event persistence.
+- Shared frame capture helper (`CaptureFrameToPath`) for external snapshot pipelines.
+- New architecture and decision documentation for deployment mode guarantees and Pi AI constraints.
+
+### Changed
+- Backend boot flow now initializes YOLO detection only when mode allows it, and runs degraded detection handles in non-YOLO modes for API compatibility.
+- `docker-compose.yml` now sets explicit `RTSPANDA_MODE` defaults and includes Snapshot AI environment controls for Pi profile runs.
+- `scripts/pi-up.sh` now hard-blocks unsupported local AI-worker paths on ARM, clarifies supported Pi paths, and improves post-deploy guidance.
+- README was fully rewritten around the three deployment modes and explicit Pi constraints.
+
 ## v0.0.8 - 2026-03-19
 
 ### Added

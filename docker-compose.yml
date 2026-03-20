@@ -50,6 +50,7 @@ x-rtspanda-common: &rtspanda-common
     MEDIAMTX_HLS_SEGMENT_COUNT: "${MEDIAMTX_HLS_SEGMENT_COUNT:-3}"
     MEDIAMTX_HLS_SEGMENT_DURATION: "${MEDIAMTX_HLS_SEGMENT_DURATION:-2s}"
     MEDIAMTX_HLS_PART_DURATION: "${MEDIAMTX_HLS_PART_DURATION:-200ms}"
+    RTSPANDA_MODE: "${RTSPANDA_MODE:-standard}"
     AI_MODE: "${AI_MODE:-local}"
     AI_WORKER_URL: "${AI_WORKER_URL:-}"
     DETECTOR_URL: "${DETECTOR_URL:-}"
@@ -108,6 +109,9 @@ services:
       MEDIAMTX_HLS_SEGMENT_COUNT: "${MEDIAMTX_HLS_SEGMENT_COUNT:-3}"
       MEDIAMTX_HLS_SEGMENT_DURATION: "${MEDIAMTX_HLS_SEGMENT_DURATION:-2s}"
       MEDIAMTX_HLS_PART_DURATION: "${MEDIAMTX_HLS_PART_DURATION:-200ms}"
+      # Pi mode: viewer + stream relay + snapshot AI only.
+      # Real-time YOLO inference is NOT supported on Raspberry Pi.
+      RTSPANDA_MODE: "pi"
       AI_MODE: "remote"
       AI_WORKER_URL: "${AI_WORKER_URL:-}"
       DETECTOR_URL: "${DETECTOR_URL:-}"
@@ -115,6 +119,13 @@ services:
       DETECTION_WORKERS: "${DETECTION_WORKERS:-1}"
       DETECTION_QUEUE_SIZE: "${DETECTION_QUEUE_SIZE:-32}"
       GOMEMLIMIT: "${GOMEMLIMIT:-200MiB}"
+      # Snapshot Intelligence Engine (Pi AI replacement)
+      SNAPSHOT_AI_ENABLED: "${SNAPSHOT_AI_ENABLED:-false}"
+      SNAPSHOT_AI_PROVIDER: "${SNAPSHOT_AI_PROVIDER:-claude}"
+      SNAPSHOT_AI_API_KEY: "${SNAPSHOT_AI_API_KEY:-}"
+      SNAPSHOT_AI_INTERVAL_SECONDS: "${SNAPSHOT_AI_INTERVAL_SECONDS:-30}"
+      SNAPSHOT_AI_PROMPT: "${SNAPSHOT_AI_PROMPT:-Detect people, vehicles, packages, or notable activity near a property.}"
+      SNAPSHOT_AI_THRESHOLD: "${SNAPSHOT_AI_THRESHOLD:-medium}"
 
   # Standalone AI-worker profile for a second machine or dedicated inference host.
   ai-worker-standalone:

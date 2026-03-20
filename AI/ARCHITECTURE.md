@@ -2,31 +2,79 @@
 
 ## System Overview
 
-RTSPanda is a modular monolith. One binary, one config, one compose file.
+RTSPanda is a modular monolith. One binary, one config, one compose file — with three explicitly separated deployment modes.
+
+---
+
+## Deployment Modes
+
+### Mode: Standard (server-class hardware)
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Docker Container                  │
-│                                                      │
-│  ┌──────────────────┐    ┌──────────────────────┐   │
-│  │   Go Backend     │    │      mediamtx         │   │
-│  │                  │◄───┤  (stream relay)       │   │
-│  │  - REST API      │    │  - RTSP ingest        │   │
-│  │  - Static files  │    │  - HLS output         │   │
-│  │  - Stream mgmt   │    │  - WebRTC (future)    │   │
-│  │  - SQLite        │    └──────────────────────┘   │
-│  └────────┬─────────┘                               │
-│           │                                          │
-│  ┌────────▼─────────┐                               │
-│  │  React Frontend  │                               │
-│  │  (embedded)      │                               │
-│  └──────────────────┘                               │
-└─────────────────────────────────────────────────────┘
-         ▲
-         │ HTTP (port 8080)
-         │
-    Browser (hls.js)
+┌──────────────────────────────────────────────────────────────────┐
+│  Docker Container                                                │
+│                                                                  │
+│  ┌──────────────────┐    ┌──────────────────────┐               │
+│  │   Go Backend     │◄───│      mediamtx         │               │
+│  │  - REST API      │    │  - RTSP ingest        │               │
+│  │  - Static files  │    │  - HLS output         │               │
+│  │  - SQLite        │    └──────────────────────┘               │
+│  │  - Detection mgr │                                            │
+│  └────────┬─────────┘                                            │
+│           │                                                      │
+│  ┌────────▼──────────┐    ┌─────────────────────┐               │
+│  │  React Frontend   │    │  FastAPI AI Worker   │               │
+│  │  (embedded)       │    │  - YOLOv8 ONNX       │               │
+│  └───────────────────┘    │  - /detect endpoint  │               │
+│                           └──────────────────────┘               │
+└──────────────────────────────────────────────────────────────────┘
+           ▲
+           │ HTTP (port 8080)
+      Browser (hls.js)
 ```
+
+**Capable hardware required.** GPU strongly recommended for 4+ cameras.
+
+---
+
+### Mode: Pi (Raspberry Pi / ARM)
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Docker Container (arm64 / armv7)                                │
+│                                                                  │
+│  ┌──────────────────┐    ┌──────────────────────┐               │
+│  │   Go Backend     │◄───│      mediamtx         │               │
+│  │  - REST API      │    │  - RTSP ingest        │               │
+│  │  - Static files  │    │  - HLS output         │               │
+│  │  - SQLite        │    └──────────────────────┘               │
+│  │  - Snapshot AI   │                                            │
+│  └────────┬─────────┘                                            │
+│           │                                                      │
+│  ┌────────▼──────────┐    ┌──────────────────────────────────┐   │
+│  │  React Frontend   │    │  Snapshot Intelligence Engine    │   │
+│  │  (embedded)       │    │  - FFmpeg frame capture          │   │
+│  └───────────────────┘    │  - Claude / OpenAI vision API   │   │
+│                           │  - Structured event output       │   │
+│                           └──────────────────────────────────┘   │
+│                                                                  │
+│  ✗ No YOLO AI worker  ✗ No real-time detection                  │
+└──────────────────────────────────────────────────────────────────┘
+           ▲
+           │ HTTP (port 8080)
+      Browser (hls.js)
+```
+
+**Raspberry Pi does NOT support real-time YOLO inference.** The Snapshot
+Intelligence Engine is the Pi AI replacement. It captures frames at a configured
+interval and sends them to an external vision API for interpretation.
+
+---
+
+### Mode: Viewer (desktop, no AI)
+
+Identical to Standard but with the AI worker disabled and RTSPANDA_MODE=viewer.
+Suitable for Windows/Linux desktops that want camera management without detection.
 
 ---
 
@@ -34,38 +82,61 @@ RTSPanda is a modular monolith. One binary, one config, one compose file.
 
 ### `cmd/rtspanda/main.go`
 
-- Parse config (env vars + optional config file)
-- Start SQLite
-- Run DB migrations
+- Detect deployment mode (`RTSPANDA_MODE` or auto from `runtime.GOARCH`)
+- Parse config (env vars)
+- Start SQLite, run migrations
 - Start mediamtx subprocess
+- Start YOLO detection manager (Standard mode only)
+- Start Snapshot Intelligence Engine (Pi mode only)
 - Start HTTP server
 - Handle graceful shutdown
 
+### `internal/mode/`
+
+- `mode.go` — Mode type, `Detect()`, `AIInferenceAllowed()`, `SnapshotAIAllowed()`, `LogBanner()`
+
 ### `internal/db/`
 
-- `db.go` — open SQLite connection, run migrations
-- `migrations/` — sequential SQL migration files
-- `cameras.go` — camera DB queries (CRUD)
-- `settings.go` — settings key/value queries
+- `db.go` — Open SQLite connection, run migrations
+- `migrations/` — Sequential SQL migration files
 
 ### `internal/cameras/`
 
 - `model.go` — Camera struct
-- `service.go` — business logic for camera CRUD
-- `repository.go` — wraps DB queries, returns domain types
+- `service.go` — Business logic for camera CRUD
+- `repository.go` — DB queries, returns domain types
 
 ### `internal/streams/`
 
-- `manager.go` — lifecycle for active streams
-- `mediamtx.go` — manages mediamtx process + config generation
-- `health.go` — polls mediamtx for stream status
+- `manager.go` — Lifecycle for active streams
+- `mediamtx.go` — Manages mediamtx process + config generation
+- `health.go` — Polls mediamtx for stream status (3-second cache)
+
+### `internal/detections/`
+
+- `manager.go` — Detection sampler + async worker queue (Standard mode)
+- `ai_config.go` — AI mode resolution (local / remote)
+- `capture.go` — FFmpeg single-frame extraction
+- `client.go` — HTTP client to /detect endpoint
+- `model.go` — Detection types (Detection, Event, Snapshot, Health)
+- `repository.go` — SQLite event persistence
+
+### `internal/snapshotai/`
+
+- `manager.go` — Interval-based snapshot capture → vision API → event emit (Pi mode)
+- `providers.go` — OpenAI and Claude vision API clients
+
+### `internal/notifications/`
+
+- `discord.go` — Discord webhook dispatch (detection events, manual snapshots/clips)
+- `openai_caption.go` — Optional OpenAI caption provider for Discord messages
 
 ### `internal/api/`
 
-- `router.go` — sets up all HTTP routes
-- `cameras.go` — camera REST handlers
-- `streams.go` — stream status + HLS URL endpoint
-- `static.go` — serves embedded React frontend
+- `router.go` — HTTP routes (all modes share the same router)
+- `cameras.go` — Camera REST handlers
+- `streams.go` — Stream status + HLS URL endpoint
+- `static.go` — Serves embedded React frontend
 
 ---
 
@@ -75,13 +146,14 @@ RTSPanda is a modular monolith. One binary, one config, one compose file.
 
 ```sql
 CREATE TABLE cameras (
-    id          TEXT PRIMARY KEY,          -- UUID
+    id          TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     rtsp_url    TEXT NOT NULL,
     enabled     INTEGER NOT NULL DEFAULT 1,
-    position    INTEGER NOT NULL DEFAULT 0, -- grid sort order
+    position    INTEGER NOT NULL DEFAULT 0,
     created_at  DATETIME NOT NULL DEFAULT (datetime('now')),
     updated_at  DATETIME NOT NULL DEFAULT (datetime('now'))
+    -- plus: detection controls, Discord settings, recording config
 );
 ```
 
@@ -89,136 +161,131 @@ CREATE TABLE cameras (
 
 ```sql
 CREATE TABLE settings (
-    key     TEXT PRIMARY KEY,
-    value   TEXT NOT NULL
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+```
+
+### `detection_events` table
+
+Used by both YOLO pipeline (Standard) and Snapshot AI (Pi). Fields are identical.
+
+```sql
+CREATE TABLE detection_events (
+    id            TEXT PRIMARY KEY,
+    camera_id     TEXT NOT NULL,
+    object_label  TEXT NOT NULL,
+    confidence    REAL NOT NULL,
+    bbox_json     TEXT NOT NULL,
+    snapshot_path TEXT NOT NULL,
+    frame_width   INTEGER,
+    frame_height  INTEGER,
+    raw_payload   TEXT,
+    created_at    DATETIME NOT NULL
 );
 ```
 
 ---
 
-## REST API Design
+## REST API
 
 Base path: `/api/v1`
 
-| Method | Path                    | Description              |
-|--------|-------------------------|--------------------------|
-| GET    | `/api/v1/cameras`       | List all cameras         |
-| POST   | `/api/v1/cameras`       | Add camera               |
-| GET    | `/api/v1/cameras/:id`   | Get camera               |
-| PUT    | `/api/v1/cameras/:id`   | Update camera            |
-| DELETE | `/api/v1/cameras/:id`   | Delete camera            |
-| GET    | `/api/v1/cameras/:id/stream` | Get stream URL + status |
-| GET    | `/api/v1/health`        | Health check             |
-
-Static files: all non-`/api/` requests → serve embedded React app.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/cameras` | List all cameras |
+| POST | `/api/v1/cameras` | Add camera |
+| GET | `/api/v1/cameras/:id` | Get camera |
+| PUT | `/api/v1/cameras/:id` | Update camera |
+| DELETE | `/api/v1/cameras/:id` | Delete camera |
+| GET | `/api/v1/cameras/:id/stream` | Stream URL + status |
+| GET | `/api/v1/detections/health` | Detection subsystem health |
+| GET | `/api/v1/health` | Liveness |
+| GET | `/api/v1/health/ready` | Readiness |
+| GET | `/api/v1/system/stats` | Process stats |
+| GET | `/metrics` | Prometheus metrics |
 
 ---
 
-## Streaming Pipeline Detail
-
-### Phase 1: HLS via mediamtx
+## Streaming Pipeline
 
 1. User adds camera RTSP URL via API
-2. Backend writes mediamtx config entry for that camera
-3. mediamtx ingests RTSP stream and outputs HLS segments
+2. Backend writes mediamtx config for that camera
+3. mediamtx ingests RTSP → outputs HLS segments (on-demand only)
 4. Frontend fetches HLS URL from `/api/v1/cameras/:id/stream`
 5. hls.js player loads the `.m3u8` playlist
 6. Browser plays video — no direct camera connection
 
-### mediamtx Configuration (generated per camera)
+`sourceOnDemand: true` is locked — streams must not stay open when nobody is watching.
 
-```yaml
-paths:
-  camera-{id}:
-    source: rtsp://user:pass@camera-ip:554/stream
-    sourceOnDemand: true       # only connect when someone is watching
-    sourceOnDemandCloseAfter: 10s
+---
+
+## Detection Pipelines
+
+### Standard Mode (YOLO)
+
+```
+Camera RTSP URL
+    ↓ (FFmpeg single-frame extract, per camera sample interval)
+Detection queue (async goroutine workers)
+    ↓ (HTTP POST to /detect)
+FastAPI AI worker (ONNX Runtime)
+    ↓
+Detection response (labels, confidence, bboxes)
+    ↓
+Persist to detection_events
+    ↓
+Discord alert (if camera has webhook + trigger configured)
 ```
 
-`sourceOnDemand: true` is critical — streams must not stay open when nobody is watching.
+### Pi Mode (Snapshot AI)
 
-### Phase 2: WebRTC (future)
+```
+Camera RTSP URL
+    ↓ (FFmpeg single-frame extract, per SNAPSHOT_AI_INTERVAL_SECONDS)
+Base64 encode JPEG
+    ↓ (HTTPS POST with image + prompt)
+Claude / OpenAI vision API
+    ↓
+Structured JSON response {detected, label, confidence, summary}
+    ↓
+Persist to detection_events (same schema as YOLO events)
+    ↓
+Discord alert (if camera has webhook + trigger configured)
+```
 
-Replace HLS with WebRTC signaling via pion/webrtc embedded in Go.
-Lower latency (~100-500ms vs 2-6s for HLS).
+Both pipelines emit identical event records and identical Discord alert formats. The
+UI cannot and does not need to distinguish between them.
 
 ---
 
 ## Frontend Architecture
 
-### Pages
+- Custom `usePath` hook routing (no react-router-dom)
+- React.lazy code splitting per page (202 kB initial bundle)
+- Tailwind dark theme (zinc-950 base, blue-600 accent)
+- API client wrappers in `src/api/`
 
-- `/` — Camera dashboard grid (all cameras)
-- `/cameras/:id` — Single camera full view
-- `/settings` — Add/edit/remove cameras
-
-### Components
-
-- `CameraGrid` — responsive grid of camera cards
-- `CameraCard` — thumbnail + name + status indicator
-- `VideoPlayer` — hls.js wrapper component
-- `CameraForm` — add/edit camera modal
-- `StatusBadge` — online/offline/connecting indicator
-
-### State Management
-
-- Camera list: React context or Zustand store
-- Stream state: local component state + polling
-- No global state library needed for Phase 1
-
-### API Client
-
-Thin typed wrapper in `src/api/`:
-
-```typescript
-// src/api/cameras.ts
-export async function getCameras(): Promise<Camera[]>
-export async function addCamera(data: CreateCameraInput): Promise<Camera>
-export async function deleteCamera(id: string): Promise<void>
-export async function getStreamUrl(id: string): Promise<StreamInfo>
-```
+Pages: Dashboard, CameraView, MultiCameraView, Settings, Guides
 
 ---
 
 ## Deployment
 
-### Docker
+### docker-compose.yml profiles
 
-- Multi-stage Dockerfile
-- Stage 1: Build Go binary (with embedded frontend)
-- Stage 2: Minimal runtime image (alpine or distroless)
-- mediamtx binary bundled into the image
+| Profile | Services | Mode |
+|---------|----------|------|
+| (default) | rtspanda + ai-worker | Standard |
+| pi | rtspanda-pi | Pi |
+| ai-worker | ai-worker-standalone | Remote AI worker (server) |
 
-### docker-compose.yml
-
-```yaml
-services:
-  rtspanda:
-    image: rtspanda:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./data:/data     # SQLite database
-    environment:
-      - DATA_DIR=/data
-```
-
-### install.sh
-
-One-command install:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/.../install.sh | bash
-```
-
----
-
-## Important Rules
+### Important rules
 
 1. Browser never touches camera directly
 2. mediamtx runs as a subprocess managed by Go — not a separate container
 3. Streams only open when actively viewed (`sourceOnDemand`)
-4. SQLite DB stored in a mounted volume — survives restarts
-5. Frontend is embedded in the Go binary — no separate file serving needed
-6. No auth in Phase 1 — design for it (middleware stubs OK) but don't implement
-7. Keep Go binary under 50MB, Docker image under 150MB
+4. SQLite stored in mounted volume — survives restarts
+5. Frontend embedded in Go binary
+6. **Raspberry Pi does NOT support real-time YOLO inference — ever**
+7. Go binary < 50 MB, Docker image < 150 MB

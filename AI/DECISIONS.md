@@ -285,6 +285,101 @@ This file records key decisions made during planning. Before changing anything l
 
 ---
 
+---
+
+## DEC-017 — Three deployment modes as a first-class runtime concept
+
+**Decision:** RTSPanda has exactly three deployment modes (`pi`, `standard`, `viewer`), resolved at startup via `RTSPANDA_MODE` or auto-detected from `runtime.GOARCH`. Each mode gates specific subsystems.
+
+**Rationale:**
+- Prior architecture had implicit behavior changes via individual env vars (`AI_MODE`, `AI_WORKER_URL`), which left room for misconfiguration and unclear capability expectations.
+- A single mode enum makes the deployment surface explicit and testable.
+- ARM auto-detection removes the most common Pi misconfiguration (running standard mode on Pi).
+
+**Mode capabilities:**
+
+| Mode | YOLO detection | Snapshot AI | Notes |
+|------|---------------|-------------|-------|
+| `pi` | ✗ disabled | ✔ optional | Default on ARM |
+| `standard` | ✔ enabled | ✗ | Default on x86 |
+| `viewer` | ✗ disabled | ✗ | No AI of any kind |
+
+**Implications:**
+- `internal/mode/mode.go` is the authority on mode resolution.
+- `main.go` consults `deployMode.AIInferenceAllowed()` and `deployMode.SnapshotAIAllowed()` before starting each subsystem.
+- Forcing `RTSPANDA_MODE=standard` on ARM emits a warning but does not block startup (users may have capable ARM servers).
+
+**Status:** Decided. Do not add new per-feature env vars that circumvent mode gating.
+
+---
+
+## DEC-018 — Raspberry Pi is a viewer and snapshot AI node, not a YOLO inference host
+
+**Decision:** Raspberry Pi is explicitly unsupported as a real-time YOLO inference host. This constraint is enforced in code, documentation, scripts, and error messages. There is no "experimental AI on Pi" path.
+
+**Rationale:**
+- YOLOv8n ONNX inference requires ~400–600 MB RAM at runtime. A Pi 4 (4 GB) running the full stack (Go backend, mediamtx, 4 RTSP streams, SQLite) is already at its practical memory ceiling.
+- ONNX Runtime on arm64 runs at 3–8 FPS on a Pi 4 CPU — not viable for real-time alerting.
+- Thermal throttling degrades performance further under sustained load.
+- Messaging "experimental AI on Pi" sets false expectations and produces user frustration at root causes that are fundamental, not fixable.
+
+**Enforcement points:**
+- `internal/mode/mode.go` — `AIInferenceAllowed()` returns false for `ModePi`
+- `scripts/pi-up.sh` — `full` mode is blocked with an explicit error message
+- `docker-compose.yml` — `rtspanda-pi` service sets `RTSPANDA_MODE=pi`
+- `README.md` — contains a clear statement in the deployment section header
+
+**Status:** Non-negotiable. Do not add YOLO inference paths for Pi hardware.
+
+---
+
+## DEC-019 — Snapshot Intelligence Engine as the Pi AI replacement
+
+**Decision:** Pi mode's AI capability is the Snapshot Intelligence Engine: interval-based JPEG capture → external vision API (Claude or OpenAI) → structured events → Discord alerts.
+
+**Rationale:**
+- Cloud vision APIs (GPT-4o-mini, claude-haiku) handle complex scene understanding that YOLO cannot (e.g., "Amazon driver detected" vs "person detected").
+- API latency (1–5 seconds) is acceptable for interval-based alerting — this is not a continuous tracking use case.
+- Cost per alert is negligible for homelab usage (< $0.001 per call for haiku/mini).
+- No GPU, no model downloads, no Python process — Pi handles only frame capture (FFmpeg) and HTTP dispatch.
+
+**Output contract:**
+- Emits `detection_events` rows with identical schema to YOLO events.
+- Discord alerts use the same `NotifyExternalDetectionEvents` path with a `sourceLabel` of "Snapshot AI (Claude)" or "Snapshot AI (OpenAI)".
+- The UI cannot and does not need to distinguish snapshot AI events from YOLO events.
+
+**Constraints:**
+- Not real-time. One API call per camera per interval tick.
+- Not suitable for sub-second response or continuous tracking.
+- Requires `SNAPSHOT_AI_ENABLED=true` and a valid `SNAPSHOT_AI_API_KEY`.
+- Positioning: "smart alerting via AI interpretation, not real-time detection."
+
+**Status:** Decided. Configuration via env vars; Settings UI integration is a follow-up task.
+
+---
+
+## DEC-020 — Snapshot AI uses external vision APIs, not a local model
+
+**Decision:** The Snapshot Intelligence Engine sends frames to hosted APIs (Anthropic Claude or OpenAI). There is no local vision model for Pi.
+
+**Rationale:**
+- Local vision models capable of scene description (LLaVA, InternVL, etc.) require 4–8 GB RAM — not viable on Pi.
+- External APIs are available on-demand, require no local resources, and produce higher-quality structured descriptions than YOLO labels.
+- The cloud dependency is explicit and opt-in (requires API key). Core viewing and recording work without it.
+
+**Provider support:**
+- `claude` — Uses `claude-haiku-4-5-20251001` (fast, cheap, capable vision)
+- `openai` — Uses `gpt-4o-mini` (comparable cost and capability)
+
+**Implications:**
+- Snapshot AI only activates if `SNAPSHOT_AI_ENABLED=true` and `SNAPSHOT_AI_API_KEY` is set.
+- No API key = no AI on Pi (core viewer still works fully).
+- Prompt is user-configurable (`SNAPSHOT_AI_PROMPT`) for property-specific detection.
+
+**Status:** Decided. Do not add local model paths for Pi — they are not viable hardware targets.
+
+---
+
 ## DEC-012 — Discord rich alerts are emitted from detection manager via notifier boundary
 
 **Decision:** Send Discord alerts from backend detection pipeline through a notifier interface.

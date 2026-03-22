@@ -88,7 +88,7 @@ Key behavior:
 
 ---
 
-## Current Status (v0.0.9)
+## Current Status (v0.1.0)
 
 Shipped and working:
 
@@ -105,6 +105,7 @@ Shipped and working:
 - Performance + observability (v0.0.6): stream status cache, Prometheus metrics, 76% JS bundle reduction
 - Multi-view UI, Operator Dark theme (v0.0.6)
 - Deployment modes + snapshot AI rollout (v0.0.9)
+- Stream orchestration hardening + readiness gating (v0.1.0)
 
 Not done yet:
 

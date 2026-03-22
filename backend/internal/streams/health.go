@@ -12,6 +12,8 @@ const (
 	StatusOnline     StreamStatus = "online"
 	StatusOffline    StreamStatus = "offline"
 	StatusConnecting StreamStatus = "connecting"
+	// StatusInitializing means mediamtx has not exposed a playable HLS playlist yet.
+	StatusInitializing StreamStatus = "initializing"
 
 	// hlsBase is the mediamtx HLS endpoint used for liveness probes.
 	hlsBase = "http://127.0.0.1:8888"
@@ -19,14 +21,16 @@ const (
 
 type pathsResponse struct {
 	Items []struct {
-		Name  string `json:"name"`
-		Ready bool   `json:"ready"`
+		Name   string `json:"name"`
+		Ready  bool   `json:"ready"`
+		Source string `json:"source"`
 	} `json:"items"`
 }
 
 type pathState struct {
-	Name  string
-	Ready bool
+	Name   string
+	Ready  bool
+	Source string
 }
 
 // StreamStatus returns the current streaming status for a given camera by
@@ -45,10 +49,13 @@ func (m *Manager) StreamStatus(cameraID string) StreamStatus {
 	if !ok {
 		return StatusOffline
 	}
-	if item.Ready {
+	if !item.Ready {
+		return StatusInitializing
+	}
+	if checkHLSReachable(m.hlsClient, cameraID) {
 		return StatusOnline
 	}
-	return StatusConnecting
+	return StatusInitializing
 }
 
 // StreamStatusMap returns the status for every requested camera ID in one
@@ -76,7 +83,7 @@ func (m *Manager) StreamStatusMap(cameraIDs []string) map[string]StreamStatus {
 		if item.Ready {
 			result[id] = StatusOnline
 		} else {
-			result[id] = StatusConnecting
+			result[id] = StatusInitializing
 		}
 	}
 	return result
@@ -96,7 +103,7 @@ func listPaths(client *http.Client) (map[string]pathState, error) {
 
 	result := make(map[string]pathState, len(data.Items))
 	for _, item := range data.Items {
-		result[item.Name] = pathState{Name: item.Name, Ready: item.Ready}
+		result[item.Name] = pathState{Name: item.Name, Ready: item.Ready, Source: item.Source}
 	}
 	return result, nil
 }

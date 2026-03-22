@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.0 - 2026-03-22
+
+### Added
+- Stream readiness gate for `/api/v1/cameras/:id/stream` with explicit `initializing` status and delayed `hls_url` exposure until HLS is reachable.
+- Idempotent mediamtx path synchronization logic to avoid repeated recreate loops during keepalive.
+- Expanded production walkthrough in README covering every supported setup method and operator checklist.
+
+### Changed
+- mediamtx stream profile now defaults to proactive startup (`sourceOnDemand=false`) while continuing to enforce `rtspTransport=tcp`.
+- Keepalive behavior now uses grace and backoff windows before path repair, and no longer triggers immediate readiness-based repair churn.
+- Frontend stream status handling now supports `initializing` across camera card, single-camera view, multi-camera view, and shared status badge types.
+
 ## v0.0.9 - 2026-03-20
 
 ### Added

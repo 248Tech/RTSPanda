@@ -11,15 +11,19 @@ func (s *server) handleGetStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	st := s.streams.StreamStatus(camera.ID)
+	hlsURL := ""
+	if st == "online" {
+		hlsURL = "/hls/camera-" + camera.ID + "/index.m3u8"
+	}
 	writeJSON(w, http.StatusOK, map[string]string{
-		"hls_url": "/hls/camera-" + camera.ID + "/index.m3u8",
+		"hls_url": hlsURL,
 		"status":  string(st),
 	})
 }
 
 // handleStreamStatusAll: GET /api/v1/cameras/stream-status
 // Returns the stream status for every camera in one mediamtx round-trip.
-// Response: { "camera-id": { "status": "online|offline|connecting", "hls_url": "..." }, ... }
+// Response: { "camera-id": { "status": "online|offline|connecting|initializing", "hls_url": "..." }, ... }
 func (s *server) handleStreamStatusAll(w http.ResponseWriter, _ *http.Request) {
 	cameras, err := s.cameras.List()
 	if err != nil {
@@ -41,9 +45,13 @@ func (s *server) handleStreamStatusAll(w http.ResponseWriter, _ *http.Request) {
 	result := make(map[string]entry, len(cameras))
 	for _, c := range cameras {
 		st := statusMap[c.ID]
+		hlsURL := ""
+		if st == "online" {
+			hlsURL = "/hls/camera-" + c.ID + "/index.m3u8"
+		}
 		result[c.ID] = entry{
 			Status: string(st),
-			HLSURL: "/hls/camera-" + c.ID + "/index.m3u8",
+			HLSURL: hlsURL,
 		}
 	}
 	writeJSON(w, http.StatusOK, result)

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,11 +32,13 @@ type Manager struct {
 	// pathCache caches the mediamtx path list so all cameras share one API call.
 	pathCache *pathListCache
 
-	keepaliveInterval    time.Duration
-	keepaliveReloadAfter int
-	keepaliveAPIFailures int
-	pathFailCounts       map[string]int
-	lastReloadAt         time.Time
+	keepaliveInterval       time.Duration
+	keepaliveUnhealthyGrace time.Duration
+	keepaliveRepairBackoff  time.Duration
+	keepaliveAPIFailures    int
+	pathUnhealthySince      map[string]time.Time
+	pathLastRepairAt        map[string]time.Time
+	lastReloadAt            time.Time
 }
 
 // NewManager creates a Manager. If the mediamtx binary is not found, streaming
@@ -51,15 +54,17 @@ func NewManager(dataDir string) *Manager {
 	configPath := filepath.Join(dataDir, "mediamtx.yml")
 	recordDir := filepath.Join(dataDir, "recordings")
 	return &Manager{
-		proc:                 &proc{binPath: binPath, configPath: configPath, recordDir: recordDir},
-		camMap:               make(map[string]cameras.Camera),
-		reloadCh:             make(chan struct{}, 1),
-		statusClient:         &http.Client{Timeout: 3 * time.Second},
-		hlsClient:            &http.Client{Timeout: 3 * time.Second},
-		pathCache:            newPathListCache(3 * time.Second),
-		keepaliveInterval:    15 * time.Second,
-		keepaliveReloadAfter: 4,
-		pathFailCounts:       make(map[string]int),
+		proc:                    &proc{binPath: binPath, configPath: configPath, recordDir: recordDir},
+		camMap:                  make(map[string]cameras.Camera),
+		reloadCh:                make(chan struct{}, 1),
+		statusClient:            &http.Client{Timeout: 3 * time.Second},
+		hlsClient:               &http.Client{Timeout: 3 * time.Second},
+		pathCache:               newPathListCache(3 * time.Second),
+		keepaliveInterval:       15 * time.Second,
+		keepaliveUnhealthyGrace: 8 * time.Second,
+		keepaliveRepairBackoff:  30 * time.Second,
+		pathUnhealthySince:      make(map[string]time.Time),
+		pathLastRepairAt:        make(map[string]time.Time),
 	}
 }
 
@@ -125,8 +130,8 @@ func (m *Manager) OnCameraAdded(c cameras.Camera) {
 	log.Printf("streams: adding camera id=%s name=%q rtsp=%s", c.ID, c.Name, c.RTSPURL)
 	m.pathCache.invalidate()
 	e := cameraEntry{ID: c.ID, RTSPURL: c.RTSPURL, RecordEnabled: c.RecordEnabled}
-	if err := apiAddPath(e); err != nil {
-		log.Printf("streams: camera %s: add path via API failed — %v (triggering config reload)", c.ID, err)
+	if err := m.ensurePath(e); err != nil {
+		log.Printf("streams: camera %s: add path via API failed — %v", c.ID, err)
 		m.triggerReload()
 	}
 }
@@ -142,7 +147,7 @@ func (m *Manager) OnCameraRemoved(id string) {
 
 	log.Printf("streams: removing camera id=%s", id)
 	m.pathCache.invalidate()
-	if err := apiRemovePath(id); err != nil {
+	if err := apiRemovePath(id); err != nil && !isPathNotFoundErr(err) {
 		log.Printf("streams: camera %s: remove path via API failed — %v (triggering config reload)", id, err)
 		m.triggerReload()
 	}
@@ -163,16 +168,20 @@ func (m *Manager) OnCameraUpdated(c cameras.Camera) {
 	m.mu.Unlock()
 
 	log.Printf("streams: updating camera id=%s enabled=%v rtsp=%s", c.ID, c.Enabled, c.RTSPURL)
-	// Remove old path (ignore error if it wasn't there)
-	if wasEnabled {
-		_ = apiRemovePath(c.ID)
-	}
-	if c.Enabled {
-		e := cameraEntry{ID: c.ID, RTSPURL: c.RTSPURL, RecordEnabled: c.RecordEnabled}
-		if err := apiAddPath(e); err != nil {
-			log.Printf("streams: camera %s: update path via API failed — %v (triggering config reload)", c.ID, err)
-			m.triggerReload()
+	m.pathCache.invalidate()
+	if !c.Enabled {
+		if wasEnabled {
+			if err := apiRemovePath(c.ID); err != nil && !isPathNotFoundErr(err) {
+				log.Printf("streams: camera %s: disable/remove path failed — %v", c.ID, err)
+				m.triggerReload()
+			}
 		}
+		return
+	}
+	e := cameraEntry{ID: c.ID, RTSPURL: c.RTSPURL, RecordEnabled: c.RecordEnabled}
+	if err := m.ensurePath(e); err != nil {
+		log.Printf("streams: camera %s: update path via API failed — %v", c.ID, err)
+		m.triggerReload()
 	}
 }
 
@@ -280,7 +289,7 @@ func (m *Manager) runKeepalive() {
 		m.mu.Lock()
 		m.keepaliveAPIFailures++
 		failures := m.keepaliveAPIFailures
-		shouldReload := failures >= 3 && time.Since(m.lastReloadAt) > 30*time.Second
+		shouldReload := failures >= 3 && time.Since(m.lastReloadAt) > 2*time.Minute
 		if shouldReload {
 			m.lastReloadAt = time.Now()
 			m.keepaliveAPIFailures = 0
@@ -294,75 +303,62 @@ func (m *Manager) runKeepalive() {
 		return
 	}
 
-	// Multi-factor health checks are done outside the mutex because they make
-	// HTTP calls. We gather results first, then update state under the lock.
-	type healthResult struct {
-		entry   cameraEntry
-		healthy bool
+	type repairCandidate struct {
+		entry  cameraEntry
+		reason string
 	}
-	results := make([]healthResult, 0, len(entries))
-	for _, entry := range entries {
-		pathName := "camera-" + entry.ID
-		path, ok := paths[pathName]
-
-		// Factor 1: mediamtx has the path registered and ready.
-		pathOK := ok && path.Ready
-
-		// Factor 2: HLS playlist is reachable, meaning mediamtx is actively
-		// serving segments (catches zombie streams that appear ready but are hung).
-		// Only probe HLS when the path appears up — if the path is already down
-		// there is no point adding an extra HTTP round-trip.
-		hlsOK := !pathOK || checkHLSReachable(m.hlsClient, entry.ID)
-
-		results = append(results, healthResult{entry: entry, healthy: pathOK && hlsOK})
-	}
-
-	reAdd := make([]cameraEntry, 0)
-	reloadNeeded := false
+	repairs := make([]repairCandidate, 0)
+	now := time.Now()
 
 	m.mu.Lock()
 	m.keepaliveAPIFailures = 0
 
-	// Clean up fail counters for cameras that are no longer active.
-	activeIDs := make(map[string]struct{}, len(results))
-	for _, r := range results {
-		activeIDs[r.entry.ID] = struct{}{}
-	}
-	for cameraID := range m.pathFailCounts {
-		if _, ok := activeIDs[cameraID]; !ok {
-			delete(m.pathFailCounts, cameraID)
+	activeIDs := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		activeIDs[entry.ID] = struct{}{}
+		pathName := "camera-" + entry.ID
+		path, exists := paths[pathName]
+		needsRepair := !exists || !pathMatchesEntry(path, entry)
+		if !needsRepair {
+			delete(m.pathUnhealthySince, entry.ID)
+			continue
 		}
-	}
-
-	for _, r := range results {
-		if r.healthy {
-			m.pathFailCounts[r.entry.ID] = 0
+		if _, ok := m.pathUnhealthySince[entry.ID]; !ok {
+			m.pathUnhealthySince[entry.ID] = now
+		}
+		if now.Sub(m.pathUnhealthySince[entry.ID]) < m.keepaliveUnhealthyGrace {
+			continue
+		}
+		lastRepairAt := m.pathLastRepairAt[entry.ID]
+		if !lastRepairAt.IsZero() && now.Sub(lastRepairAt) < m.keepaliveRepairBackoff {
 			continue
 		}
 
-		m.pathFailCounts[r.entry.ID]++
-		failCount := m.pathFailCounts[r.entry.ID]
-		if failCount == 2 {
-			reAdd = append(reAdd, r.entry)
+		m.pathLastRepairAt[entry.ID] = now
+		reason := "missing"
+		if exists {
+			reason = "source-changed"
 		}
-		if failCount >= m.keepaliveReloadAfter && time.Since(m.lastReloadAt) > 30*time.Second {
-			reloadNeeded = true
-			m.lastReloadAt = time.Now()
-			m.pathFailCounts[r.entry.ID] = 0
+		repairs = append(repairs, repairCandidate{entry: entry, reason: reason})
+	}
+
+	for cameraID := range m.pathUnhealthySince {
+		if _, ok := activeIDs[cameraID]; !ok {
+			delete(m.pathUnhealthySince, cameraID)
+		}
+	}
+	for cameraID := range m.pathLastRepairAt {
+		if _, ok := activeIDs[cameraID]; !ok {
+			delete(m.pathLastRepairAt, cameraID)
 		}
 	}
 	m.mu.Unlock()
 
-	for _, entry := range reAdd {
-		log.Printf("streams: keepalive attempting path repair camera=%s", entry.ID)
-		if err := apiAddPath(entry); err != nil {
-			log.Printf("streams: keepalive path repair failed camera=%s err=%v", entry.ID, err)
+	for _, repair := range repairs {
+		log.Printf("streams: keepalive repairing camera=%s reason=%s", repair.entry.ID, repair.reason)
+		if err := m.ensurePath(repair.entry); err != nil {
+			log.Printf("streams: keepalive repair failed camera=%s err=%v", repair.entry.ID, err)
 		}
-	}
-
-	if reloadNeeded {
-		log.Printf("streams: keepalive triggering mediamtx reload after repeated unhealthy paths")
-		m.triggerReload()
 	}
 }
 
@@ -392,7 +388,8 @@ func (m *Manager) ResetStream(cameraID string) error {
 	}
 
 	m.mu.Lock()
-	m.pathFailCounts[cameraID] = 0
+	delete(m.pathUnhealthySince, cameraID)
+	delete(m.pathLastRepairAt, cameraID)
 	m.mu.Unlock()
 	return nil
 }
@@ -418,4 +415,42 @@ func (m *Manager) entries() []cameraEntry {
 		result = append(result, cameraEntry{ID: c.ID, RTSPURL: c.RTSPURL, RecordEnabled: c.RecordEnabled})
 	}
 	return result
+}
+
+func (m *Manager) ensurePath(entry cameraEntry) error {
+	paths, err := m.pathCache.get(m.statusClient)
+	if err != nil {
+		return fmt.Errorf("list paths: %w", err)
+	}
+
+	name := "camera-" + entry.ID
+	if path, ok := paths[name]; ok {
+		if pathMatchesEntry(path, entry) {
+			return nil
+		}
+		if err := apiRemovePath(entry.ID); err != nil && !isPathNotFoundErr(err) {
+			return fmt.Errorf("remove outdated path %s: %w", name, err)
+		}
+	}
+
+	if err := apiAddPath(entry); err != nil {
+		return fmt.Errorf("add path %s: %w", name, err)
+	}
+	m.pathCache.invalidate()
+	return nil
+}
+
+func pathMatchesEntry(path pathState, entry cameraEntry) bool {
+	if strings.TrimSpace(path.Source) == "" {
+		return true
+	}
+	return strings.TrimSpace(path.Source) == strings.TrimSpace(entry.RTSPURL)
+}
+
+func isPathNotFoundErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "not found")
 }

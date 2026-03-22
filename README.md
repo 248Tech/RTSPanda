@@ -1,315 +1,342 @@
 # RTSPanda
 
-RTSPanda is a self-hosted RTSP camera platform for fast browser viewing, recording workflows, and modular AI detection. It runs as a single Go binary with an embedded React frontend, a mediamtx stream relay subprocess, and an optional Python AI worker — all wired together in a single docker-compose file.
+RTSPanda is a self-hosted RTSP camera platform for browser live view, recording, and detection workflows. It runs as a single Go backend with an embedded React frontend, a mediamtx relay process, and optional AI services based on deployment mode.
 
-**Project tags:** `rtsp` `video-surveillance` `computer-vision` `golang` `react` `fastapi` `onnxruntime` `raspberry-pi` `docker-compose` `homelab`
+Project tags: `rtsp` `video-surveillance` `golang` `react` `fastapi` `onnxruntime` `raspberry-pi` `docker-compose`
+
+## What This README Covers
+
+This guide is the production operator walkthrough for RTSPanda v0.1.0:
+
+1. Choose the correct deployment mode
+2. Prepare the host safely
+3. Run one of the supported setup methods
+4. Validate health and stream readiness
+5. Operate, harden, and upgrade reliably
 
 ---
 
 ## Deployment Modes
 
-RTSPanda has three explicitly separated deployment modes. Each mode has a clear hardware target, a defined capability set, and hard constraints on what it does and does not support.
+RTSPanda has three runtime modes. Pick one before setup.
 
-| Mode | Hardware Target | AI Type | Real-Time Detection | Primary Use Case |
-|------|----------------|---------|---------------------|-----------------|
-| **Pi Mode** | Raspberry Pi, phones, ARM | Snapshot AI (Claude / OpenAI) | ✗ No | Edge viewer + interval alerts |
-| **Standard** | Dedicated server (x86, GPU) | YOLO (ONNX / GPU) | ✔ Yes | Full system, all features |
-| **Viewer** | Windows / Linux desktop | None | ✗ No | Monitoring without AI |
+| Mode | Target Hardware | AI Path | Real-time Detection | Typical Use |
+|------|------------------|--------|---------------------|-------------|
+| `standard` | x86 server, optional GPU | Local/remote YOLO worker | Yes | Full production stack |
+| `pi` | Raspberry Pi / ARM | Snapshot AI (Claude/OpenAI) and/or remote YOLO worker | No (local) | Edge ingest/view + alerts |
+| `viewer` | Desktop/server | None | No | Live view + optional recording only |
 
-**Raspberry Pi does NOT support real-time AI detection.**
-Pi is supported as a viewer node and as a snapshot-based alert node via external vision APIs (Claude, ChatGPT). There is no YOLO inference path on Pi — not experimental, not degraded, not optional. It does not work and is not a goal.
+Important: Raspberry Pi is not a local real-time YOLO inference host. Use snapshot AI on Pi or route detection to a remote worker.
 
 ---
 
-## Mode 1 — Pi Mode
+## Setup Methods At A Glance
 
-**Purpose:** Ultra-lightweight deployment for Raspberry Pi, phones (Termux), and other low-power ARM devices.
+All supported setup paths are listed here:
 
-**Capabilities:**
-- RTSP stream viewing via HLS
-- Web UI access
-- Stream relay via mediamtx
-- Optional snapshot AI alerts (Claude or OpenAI vision)
-- Optional interval screenshot capture
+| Method | Command Path | Best For |
+|-------|---------------|----------|
+| Standard full stack | `docker compose up --build -d` | Single host production |
+| Pi mode (viewer/snapshot AI) | `./scripts/pi-up.sh` | Pi edge node |
+| Pi + remote AI worker | `AI_WORKER_URL=... ./scripts/pi-up.sh` | Pi ingest + server inference |
+| Standalone AI worker | `PI_DEPLOYMENT_MODE=ai-worker ./scripts/pi-up.sh` (server only) | Dedicated inference host |
+| Viewer mode (binary) | `RTSPANDA_MODE=viewer ./rtspanda` | No Docker monitoring |
+| Viewer mode (Docker) | `RTSPANDA_MODE=viewer docker compose up --build -d rtspanda` | Lightweight container deployment |
+| Source development setup | run backend/frontend/worker directly | Local development and debugging |
 
-**AI on Pi — How It Works:**
+---
 
-Since Pi cannot run YOLO inference, RTSPanda uses the **Snapshot Intelligence Engine**: frames are captured at a configurable interval, sent to an external vision AI API (Claude or OpenAI), and the structured response is turned into detection events and Discord alerts.
+## Production Walkthrough
 
-Example alert:
-```
-@Frosty: Amazon driver detected in driveway (confidence: medium)
-```
+### 1. Prerequisites
 
-Configuration:
-```bash
-SNAPSHOT_AI_ENABLED=true
-SNAPSHOT_AI_PROVIDER=claude          # or: openai
-SNAPSHOT_AI_API_KEY=sk-ant-...
-SNAPSHOT_AI_INTERVAL_SECONDS=15
-SNAPSHOT_AI_PROMPT="Detect delivery drivers, people, or vehicles near a house."
-SNAPSHOT_AI_THRESHOLD=medium         # low | medium | high
-```
+- Docker Engine 24+ and Docker Compose plugin
+- Open ports: `8080` (app), `8888` (HLS served via app reverse path), `9997/9998` internal mediamtx API/metrics
+- Stable LAN access to camera RTSP endpoints
+- For Standard mode with multiple cameras, CPU with headroom and GPU recommended
+- For Pi mode with Snapshot AI, API key for Claude or OpenAI
 
-**Constraints:**
-- No real-time detection (interval-based only)
-- Latency depends on external API round-trip (typically 1–5 seconds)
-- Not suitable for continuous object tracking
-- Requires an API key for Claude or OpenAI
-
-**Setup:**
-
-Requirements: Raspberry Pi OS 64-bit recommended, Docker Engine, Docker Compose plugin.
+### 2. Clone and Baseline Config
 
 ```bash
 git clone https://github.com/248Tech/RTSPanda.git
 cd RTSPanda
-chmod +x ./scripts/pi-*.sh
-./scripts/pi-preflight.sh
-./scripts/pi-up.sh
 ```
 
-With snapshot AI:
+Optional but recommended:
+
 ```bash
-export SNAPSHOT_AI_ENABLED=true
-export SNAPSHOT_AI_PROVIDER=claude
-export SNAPSHOT_AI_API_KEY=sk-ant-...
-./scripts/pi-up.sh
+cp .env.example .env 2>/dev/null || true
 ```
 
-Verify:
-```bash
-curl -s http://127.0.0.1:8080/api/v1/health
-```
+### 3. Choose and Execute a Setup Method
 
-Open: `http://localhost:8080`
+Use one of the methods below in full.
 
----
-
-## Mode 2 — Standard Mode
-
-**Purpose:** Full RTSPanda deployment with real-time YOLO detection. Requires a dedicated server — GPU strongly recommended for multi-camera deployments.
-
-**Capabilities:**
-- Live RTSP ingest + HLS playback
-- Real-time YOLOv8 detection (ONNX Runtime, GPU-accelerated)
-- Multi-camera support with per-camera detection controls
-- Low-latency Discord alerts with snapshot/clip attachments
-- Object confidence filtering, label filtering, ignore zones
-- Continuous recording + external storage sync (rclone)
-- OpenAI caption integration for Discord alerts
-
-**Setup:**
-
-Requirements: Docker Engine, Docker Compose plugin. GPU optional but recommended for 4+ cameras.
+### Method A: Standard Full Stack (recommended default)
 
 ```bash
-git clone https://github.com/248Tech/RTSPanda.git
-cd RTSPanda
 docker compose up --build -d
 ```
 
-Verify:
+What starts:
+- `rtspanda` backend/frontend
+- `ai-worker` (YOLO detector)
+
+Validation:
+
 ```bash
 curl -s http://127.0.0.1:8080/api/v1/health
 curl -s http://127.0.0.1:8080/api/v1/health/ready
 curl -s http://127.0.0.1:8080/api/v1/detections/health
 ```
 
-Open: `http://localhost:8080`
+### Method B: Pi Mode (viewer + optional snapshot AI)
 
----
+```bash
+chmod +x ./scripts/pi-*.sh
+./scripts/pi-preflight.sh
+./scripts/pi-up.sh
+```
 
-## Mode 3 — Viewer Mode
+Enable snapshot AI:
 
-**Purpose:** Simple desktop deployment for monitoring with no AI dependency and no Docker required.
+```bash
+export SNAPSHOT_AI_ENABLED=true
+export SNAPSHOT_AI_PROVIDER=claude
+export SNAPSHOT_AI_API_KEY=sk-ant-...
+export SNAPSHOT_AI_INTERVAL_SECONDS=30
+export SNAPSHOT_AI_THRESHOLD=medium
+./scripts/pi-up.sh
+```
 
-**Capabilities:**
-- Local RTSP viewing
-- Web UI dashboard
-- Optional continuous recording
-- No AI worker, no detection pipeline
+### Method C: Pi + Remote YOLO Worker
 
-**Setup:**
+On the AI server:
 
-Set `RTSPANDA_MODE=viewer` and run the binary directly:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker build ai-worker-standalone
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker up -d --no-build ai-worker-standalone
+curl -s http://127.0.0.1:8090/health
+```
+
+On the Pi:
+
+```bash
+export AI_WORKER_URL=http://<ai-server-ip>:8090
+./scripts/pi-up.sh
+```
+
+### Method D: Standalone AI Worker Host (server-class machine)
+
+This is only for dedicated inference nodes. Do not run this on Raspberry Pi.
+
+```bash
+export PI_DEPLOYMENT_MODE=ai-worker
+./scripts/pi-up.sh
+```
+
+### Method E: Viewer Mode (binary, no Docker)
+
+Build or use a compiled binary, then run:
 
 ```bash
 RTSPANDA_MODE=viewer DATA_DIR=./data ./rtspanda
 ```
 
-Or with Docker (no AI worker):
+### Method F: Viewer Mode (Docker service only)
+
 ```bash
 RTSPANDA_MODE=viewer docker compose up --build -d rtspanda
 ```
 
----
+### Method G: Source Development Setup
 
-## Distributed Topology — Pi + Remote AI Worker
-
-Pi can forward detection jobs to a YOLO worker running on a separate server-class machine. This is optional and distinct from snapshot AI.
-
-**Step A: start the AI worker on the server**
+Backend:
 
 ```bash
-git clone https://github.com/248Tech/RTSPanda.git
-cd RTSPanda
-docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker build ai-worker-standalone
-docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile ai-worker up -d --no-build ai-worker-standalone
+cd backend
+go run ./cmd/rtspanda
 ```
 
-Verify:
-```bash
-curl -s http://127.0.0.1:8090/health
-```
-
-**Step B: point the Pi at the AI worker**
+Frontend:
 
 ```bash
-export AI_WORKER_URL="http://192.168.1.50:8090"
-./scripts/pi-up.sh
+cd frontend
+npm install
+npm run dev
 ```
 
----
+AI worker:
 
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Standard Mode (server-class hardware)                          │
-│                                                                 │
-│  RTSP Cameras → mediamtx → Go backend → Browser (hls.js)       │
-│                                ↓                                │
-│                       Detection scheduler                        │
-│                                ↓                                │
-│                    FastAPI AI worker (YOLO)                      │
-│                                ↓                                │
-│                       Discord alerts                            │
-└─────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────┐
-│  Pi Mode (Raspberry Pi / ARM)                                   │
-│                                                                 │
-│  RTSP Cameras → mediamtx → Go backend → Browser (hls.js)       │
-│                                ↓                                │
-│                    Snapshot Intelligence Engine                  │
-│                     (interval frame capture)                    │
-│                                ↓                                │
-│              Claude / OpenAI Vision API (external)              │
-│                                ↓                                │
-│                       Discord alerts                            │
-│                                                                 │
-│  ✗ No YOLO worker    ✗ No real-time detection                  │
-└─────────────────────────────────────────────────────────────────┘
+```bash
+cd ai_worker
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8090
 ```
 
 ---
 
-## Mode Flag
+## Post-Install Verification Checklist
 
-Set `RTSPANDA_MODE` to control which subsystems start:
+1. Open `http://<host>:8080`
+2. Add one camera with known-good RTSP URL
+3. Confirm `/api/v1/cameras/:id/stream` returns:
+   - `status=initializing` while startup completes
+   - `status=online` and non-empty `hls_url` when playable
+4. Verify dashboard card transitions to Live
+5. Trigger manual stream reset if needed:
 
-| Value | Effect |
-|-------|--------|
-| `standard` | YOLO detection worker enabled. Default on x86. |
-| `pi` | YOLO disabled. Snapshot AI available. Default on ARM. |
-| `viewer` | No AI of any kind. Viewer + recordings only. |
-
-On ARM hardware, Pi mode is the automatic default. Forcing `RTSPANDA_MODE=standard` on a Pi will emit a warning and run in degraded state — YOLO inference on Pi is not viable.
-
----
-
-## Model Setup (Standard Mode Only)
-
-The AI worker is ONNX-only and never converts models at runtime.
-
-**Remote download (default):**
 ```bash
-export MODEL_SOURCE=remote
-export YOLO_MODEL_NAME=yolo11n
-export YOLO_MODEL_RELEASE=v8.3.0
+curl -X POST http://127.0.0.1:8080/api/v1/streams/reset
 ```
 
-**Local prebuilt model:**
-```bash
-# Place the ONNX file at either location before building:
-./model.onnx
-./ai_worker/model/model.onnx
-
-export MODEL_SOURCE=local
-docker compose up --build -d
-```
+6. Confirm detection health endpoint for your mode:
+   - Standard: YOLO worker healthy
+   - Pi: snapshot AI configured, or remote worker reachable
 
 ---
 
 ## Configuration Reference
 
-### Core
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RTSPANDA_MODE` | auto | `pi`, `standard`, or `viewer` |
-| `DATA_DIR` | `./data` | SQLite + snapshots + recordings |
-| `PORT` | `8080` | HTTP listen port |
+### Core Runtime
 
-### AI Detection (Standard Mode)
-| Variable | Default | Description |
-|----------|---------|-------------|
+| Variable | Default | Notes |
+|---------|---------|------|
+| `RTSPANDA_MODE` | auto | `standard`, `pi`, or `viewer` |
+| `DATA_DIR` | `./data` | SQLite, snapshots, recordings |
+| `PORT` | `8080` | HTTP bind port |
+
+### Streaming / mediamtx
+
+| Variable | Default | Notes |
+|---------|---------|------|
+| `MEDIAMTX_HLS_ALWAYS_REMUX` | `false` | Keep low latency profile |
+| `MEDIAMTX_HLS_SEGMENT_COUNT` | `3` | Playlist segment count |
+| `MEDIAMTX_HLS_SEGMENT_DURATION` | `2s` | Segment size |
+| `MEDIAMTX_HLS_PART_DURATION` | `200ms` | LL-HLS part duration |
+| `MEDIAMTX_SOURCE_ON_DEMAND` | `false` | Streams initialize proactively |
+
+### Detection (Standard mode)
+
+| Variable | Default | Notes |
+|---------|---------|------|
 | `AI_MODE` | `local` | `local` or `remote` |
-| `AI_WORKER_URL` | — | Remote AI worker URL |
-| `DETECTOR_URL` | — | Override detector endpoint directly |
+| `AI_WORKER_URL` | empty | Remote worker endpoint |
+| `DETECTOR_URL` | empty | Direct detector override |
 
-### Snapshot AI (Pi Mode)
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SNAPSHOT_AI_ENABLED` | `false` | Enable snapshot AI engine |
+### Snapshot AI (Pi mode)
+
+| Variable | Default | Notes |
+|---------|---------|------|
+| `SNAPSHOT_AI_ENABLED` | `false` | Enables snapshot analysis loop |
 | `SNAPSHOT_AI_PROVIDER` | `claude` | `claude` or `openai` |
-| `SNAPSHOT_AI_API_KEY` | — | API key for the selected provider |
-| `SNAPSHOT_AI_INTERVAL_SECONDS` | `30` | Capture interval per camera |
-| `SNAPSHOT_AI_PROMPT` | See defaults | Prompt sent with each frame |
-| `SNAPSHOT_AI_THRESHOLD` | `medium` | Minimum confidence to alert: `low`, `medium`, `high` |
+| `SNAPSHOT_AI_API_KEY` | empty | Provider API key |
+| `SNAPSHOT_AI_INTERVAL_SECONDS` | `30` | Capture interval |
+| `SNAPSHOT_AI_PROMPT` | built-in | Scene interpretation prompt |
+| `SNAPSHOT_AI_THRESHOLD` | `medium` | Alert sensitivity |
 
-### Auth
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `AUTH_ENABLED` | `false` | Token-based auth |
-| `AUTH_TOKEN` | — | Required when auth is enabled |
+### Security
 
----
-
-## Documentation
-- [Raspberry Pi setup guide](./docs/raspberry-pi.md)
-- [Cluster mode — Pi + remote AI worker](./docs/cluster-mode.md)
-- [Streaming tuning](./docs/streaming-tuning.md)
-- [Testing strategy](./docs/testing-strategy.md)
+| Variable | Default | Notes |
+|---------|---------|------|
+| `AUTH_ENABLED` | `false` | Enable API token auth |
+| `AUTH_TOKEN` | empty | Required when auth enabled |
 
 ---
 
-## Development
+## Production Hardening
+
+Recommended for long-running deployments:
+
+1. Put RTSPanda behind a reverse proxy with TLS
+2. Restrict app port access to trusted LAN/VPN
+3. Enable auth token and rotate it periodically
+4. Mount `DATA_DIR` to durable storage
+5. Back up SQLite and recording metadata daily
+6. Watch container restart patterns and mediamtx logs
+7. Keep host clock and timezone correct for event ordering
+
+---
+
+## Operations
+
+### Logs
 
 ```bash
-cd backend && go test ./internal/...
+docker compose logs -f rtspanda
+docker compose logs -f ai-worker
+```
+
+Pi profile logs:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml --profile pi logs -f rtspanda-pi
+```
+
+### Upgrade
+
+```bash
+git pull
+docker compose up --build -d
+```
+
+Pi profile upgrade:
+
+```bash
+git pull
+./scripts/pi-up.sh
+```
+
+### Rollback Strategy
+
+1. Keep the previous image/tag available
+2. Back up `DATA_DIR` before upgrades
+3. If needed, redeploy previous tag and restore data backup
+
+---
+
+## Troubleshooting
+
+### Stream stuck in `initializing`
+
+- Verify camera RTSP URL with VLC or ffplay
+- Confirm camera credentials and codec support
+- Check backend logs for mediamtx path add errors
+- Trigger stream reset endpoint
+- Validate camera and host are on routable network
+
+### API healthy but video offline
+
+- Confirm `/api/v1/cameras/:id/stream` `hls_url` is non-empty
+- Check whether HLS playlist is reachable from app host
+- Review firewall rules between app and camera
+
+### Detection not firing
+
+- Standard mode: check `ai-worker` health and model load
+- Pi mode: verify snapshot AI provider/API key
+- Remote mode: verify `AI_WORKER_URL` connectivity
+
+---
+
+## Documentation Index
+
+- [Raspberry Pi setup](./docs/raspberry-pi.md)
+- [Cluster mode (Pi + remote AI)](./docs/cluster-mode.md)
+- [Streaming tuning](./docs/streaming-tuning.md)
+- [Testing strategy](./docs/testing-strategy.md)
+- [Release notes v0.0.9](./RELEASE_NOTES_v0.0.9.md)
+
+---
+
+## Development Validation
+
+```bash
+cd backend && go test ./...
 cd frontend && npm run test -- --config vitest.config.ts
 cd ai_worker && python -m pytest -q
 ```
-
----
-
-## Engineering Highlights
-
-- **Backend:** Go 1.26 — camera orchestration, detection scheduling, stream management, SQLite state
-- **Frontend:** React + TypeScript + Vite SPA embedded in the Go binary
-- **AI worker:** FastAPI + ONNX Runtime (Standard mode). No PyTorch at runtime.
-- **Snapshot AI:** Claude / OpenAI vision API clients in Go (Pi mode)
-- **Streaming:** mediamtx subprocess for RTSP ingest and HLS output
-- **Deployment:** Single-machine or distributed docker-compose
-
----
-
-## Who It's For
-
-- Homelab operators who want local camera control with a credible Pi story
-- Developers building on Go + React + Python + ONNX systems
-- Small teams who want modular edge-video without cloud vendor lock-in
 
 ---
 

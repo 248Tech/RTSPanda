@@ -88,7 +88,7 @@ export interface UpdateCameraInput {
 
 export interface StreamInfo {
   hls_url: string
-  status: 'online' | 'offline' | 'connecting'
+  status: 'online' | 'offline' | 'connecting' | 'initializing'
 }
 
 const BASE = '/api/v1'

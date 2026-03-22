@@ -290,8 +290,8 @@ export default function MultiCameraView({ onBack, onSelectCamera }: MultiCameraV
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {selectedCameras.map((camera) => {
             const stream = streamInfoByCameraId[camera.id] ?? {
-              hls_url: `/hls/camera-${camera.id}/index.m3u8`,
-              status: 'connecting' as const,
+              hls_url: '',
+              status: 'initializing' as const,
             }
             const expanded = expandedId === camera.id
             return (
@@ -330,7 +330,7 @@ export default function MultiCameraView({ onBack, onSelectCamera }: MultiCameraV
                   </div>
                 </div>
                 <VideoPlayer
-                  hlsUrl={stream.hls_url}
+                  hlsUrl={stream.hls_url || null}
                   screenshotLabel={camera.name}
                   showOverlay={false}
                   onVideoElement={(video) => { videoRefs.current[camera.id] = video }}

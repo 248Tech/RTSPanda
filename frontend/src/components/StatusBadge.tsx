@@ -1,4 +1,4 @@
-export type StreamStatus = 'online' | 'offline' | 'connecting'
+export type StreamStatus = 'online' | 'offline' | 'connecting' | 'initializing'
 
 export interface StatusBadgeProps {
   status: StreamStatus
@@ -8,18 +8,21 @@ const labels: Record<StreamStatus, string> = {
   online: 'Live',
   offline: 'Offline',
   connecting: 'Connecting',
+  initializing: 'Initializing',
 }
 
 const styles: Record<StreamStatus, string> = {
   online: 'bg-status-online/10 text-status-online ring-1 ring-status-online/20',
   offline: 'bg-status-offline/10 text-status-offline ring-1 ring-status-offline/20',
   connecting: 'bg-status-connecting/10 text-status-connecting ring-1 ring-status-connecting/20',
+  initializing: 'bg-status-connecting/10 text-status-connecting ring-1 ring-status-connecting/20',
 }
 
 const dotStyles: Record<StreamStatus, string> = {
   online: 'bg-status-online animate-pulse',
   offline: 'bg-status-offline',
   connecting: 'bg-status-connecting animate-pulse',
+  initializing: 'bg-status-connecting animate-pulse',
 }
 
 export function StatusBadge({ status }: StatusBadgeProps) {

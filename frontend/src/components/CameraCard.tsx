@@ -57,7 +57,7 @@ export function CameraCard({ camera, onSelect, initialStatus }: CameraCardProps)
       >
         {/* Placeholder graphic */}
         <div className="absolute inset-0 flex items-center justify-center">
-          {displayStatus === 'connecting' ? (
+          {displayStatus === 'connecting' || displayStatus === 'initializing' ? (
             <span
               className="h-7 w-7 animate-spin rounded-full border-2 border-text-subtle border-t-transparent"
               aria-hidden

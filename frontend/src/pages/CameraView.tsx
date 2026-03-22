@@ -69,7 +69,7 @@ function groupDetectionEvents(events: DetectionEvent[]): DetectionEventGroup[] {
 export default function CameraView({ cameraId, onBack, onNavigateSettings }: CameraViewProps) {
   const [camera, setCamera] = useState<Camera | null>(null)
   const [hlsUrl, setHlsUrl] = useState<string | null>(null)
-  const [streamStatus, setStreamStatus] = useState<StreamStatus>('connecting')
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>('initializing')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -97,7 +97,7 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
         getStreamInfo(cameraId),
       ])
       setCamera(cameraRes)
-      setHlsUrl(streamRes.hls_url)
+      setHlsUrl(streamRes.hls_url || null)
       setStreamStatus(streamRes.status)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load camera')

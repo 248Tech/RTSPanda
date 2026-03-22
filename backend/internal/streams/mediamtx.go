@@ -26,7 +26,7 @@ const (
 	defaultHLSSegmentCount          = 3
 	defaultHLSSegmentDuration       = 2 * time.Second
 	defaultHLSPartDuration          = 200 * time.Millisecond
-	defaultSourceOnDemand           = true
+	defaultSourceOnDemand           = false
 	defaultSourceOnDemandCloseAfter = 10 * time.Second
 )
 

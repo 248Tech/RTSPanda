@@ -23,14 +23,23 @@ export default function Dashboard({
   const [error, setError] = useState<string | null>(null)
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg] = useState<string | null>(null)
+  const [statusWarning, setStatusWarning] = useState<string | null>(null)
 
   const fetchAll = useCallback(async () => {
     try {
-      // Parallel fetch: camera list + all stream statuses in one mediamtx call
-      const [list, map] = await Promise.all([getCameras(), getStreamStatusMap()])
+      const list = await getCameras()
       setCameras(list)
-      setStatusMap(map)
       setError(null)
+
+      // Stream status is non-blocking for dashboard rendering.
+      try {
+        const map = await getStreamStatusMap()
+        setStatusMap(map)
+        setStatusWarning(null)
+      } catch {
+        setStatusMap({})
+        setStatusWarning('Camera list loaded, but stream status is temporarily unavailable.')
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load cameras')
     } finally {
@@ -113,6 +122,9 @@ export default function Dashboard({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {statusWarning && (
+            <span className="text-xs text-status-connecting">{statusWarning}</span>
+          )}
           {resetMsg && (
             <span className="text-xs text-text-muted">{resetMsg}</span>
           )}

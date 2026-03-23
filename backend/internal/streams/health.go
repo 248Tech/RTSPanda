@@ -1,7 +1,10 @@
 package streams
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -20,11 +23,14 @@ const (
 )
 
 type pathsResponse struct {
-	Items []struct {
-		Name   string `json:"name"`
-		Ready  bool   `json:"ready"`
-		Source string `json:"source"`
-	} `json:"items"`
+	Items []pathListItem `json:"items"`
+}
+
+type pathListItem struct {
+	Name      string          `json:"name"`
+	Ready     bool            `json:"ready"`
+	Available *bool           `json:"available"`
+	SourceRaw json.RawMessage `json:"source"`
 }
 
 type pathState struct {
@@ -95,6 +101,10 @@ func listPaths(client *http.Client) (map[string]pathState, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("list paths: status=%d body=%s", resp.StatusCode, string(body))
+	}
 
 	var data pathsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
@@ -103,9 +113,38 @@ func listPaths(client *http.Client) (map[string]pathState, error) {
 
 	result := make(map[string]pathState, len(data.Items))
 	for _, item := range data.Items {
-		result[item.Name] = pathState{Name: item.Name, Ready: item.Ready, Source: item.Source}
+		result[item.Name] = pathState{
+			Name:   item.Name,
+			Ready:  pathItemReady(item),
+			Source: parseLegacySourceURL(item.SourceRaw),
+		}
 	}
 	return result, nil
+}
+
+func pathItemReady(item pathListItem) bool {
+	if item.Ready {
+		return true
+	}
+	if item.Available != nil {
+		return *item.Available
+	}
+	return false
+}
+
+// parseLegacySourceURL keeps compatibility with old mediamtx responses where
+// "source" was a raw RTSP URL string. Current mediamtx versions expose a
+// structured object instead; in that case we return "" and skip source matching.
+func parseLegacySourceURL(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return ""
+	}
+	return s
 }
 
 // checkHLSReachable probes the HLS playlist for a camera to verify mediamtx

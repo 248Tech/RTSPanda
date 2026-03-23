@@ -159,7 +159,8 @@ func (m *Manager) OnCameraUpdated(c cameras.Camera) {
 		return
 	}
 	m.mu.Lock()
-	_, wasEnabled := m.camMap[c.ID]
+	previous, hadPrevious := m.camMap[c.ID]
+	wasEnabled := hadPrevious
 	if c.Enabled {
 		m.camMap[c.ID] = c
 	} else {
@@ -178,6 +179,17 @@ func (m *Manager) OnCameraUpdated(c cameras.Camera) {
 		}
 		return
 	}
+
+	needsPathRecreate := hadPrevious && wasEnabled && pathConfigChanged(previous, c)
+	if needsPathRecreate {
+		if err := apiRemovePath(c.ID); err != nil && !isPathNotFoundErr(err) {
+			log.Printf("streams: camera %s: pre-update remove path failed — %v", c.ID, err)
+			m.triggerReload()
+			return
+		}
+		m.pathCache.invalidate()
+	}
+
 	e := cameraEntry{ID: c.ID, RTSPURL: c.RTSPURL, RecordEnabled: c.RecordEnabled}
 	if err := m.ensurePath(e); err != nil {
 		log.Printf("streams: camera %s: update path via API failed — %v", c.ID, err)
@@ -445,6 +457,11 @@ func pathMatchesEntry(path pathState, entry cameraEntry) bool {
 		return true
 	}
 	return strings.TrimSpace(path.Source) == strings.TrimSpace(entry.RTSPURL)
+}
+
+func pathConfigChanged(previous, current cameras.Camera) bool {
+	return strings.TrimSpace(previous.RTSPURL) != strings.TrimSpace(current.RTSPURL) ||
+		previous.RecordEnabled != current.RecordEnabled
 }
 
 func isPathNotFoundErr(err error) bool {

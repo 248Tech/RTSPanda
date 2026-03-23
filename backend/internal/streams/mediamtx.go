@@ -28,6 +28,7 @@ const (
 	defaultHLSPartDuration          = 200 * time.Millisecond
 	defaultSourceOnDemand           = false
 	defaultSourceOnDemandCloseAfter = 10 * time.Second
+	defaultLogLevel                 = "warn"
 )
 
 var (
@@ -53,7 +54,7 @@ hlsSegmentCount: {{.Profile.HLSSegmentCount}}
 hlsSegmentDuration: {{.Profile.HLSSegmentDuration}}
 hlsPartDuration: {{.Profile.HLSPartDuration}}
 
-logLevel: warn
+logLevel: {{.Profile.LogLevel}}
 
 recordPath: {{.RecordDir}}/%path/%Y-%m-%d_%H-%M-%S
 recordFormat: fmp4
@@ -98,6 +99,7 @@ type streamProfile struct {
 	HLSPartDuration          time.Duration
 	SourceOnDemand           bool
 	SourceOnDemandCloseAfter time.Duration
+	LogLevel                 string
 }
 
 type proc struct {
@@ -257,13 +259,14 @@ func currentStreamProfile() streamProfile {
 	profileOnce.Do(func() {
 		profile = loadStreamProfile()
 		log.Printf(
-			"streams: mediamtx profile sourceOnDemand=%v closeAfter=%s hlsAlwaysRemux=%v segmentCount=%d segmentDuration=%s partDuration=%s",
+			"streams: mediamtx profile sourceOnDemand=%v closeAfter=%s hlsAlwaysRemux=%v segmentCount=%d segmentDuration=%s partDuration=%s logLevel=%s",
 			profile.SourceOnDemand,
 			profile.SourceOnDemandCloseAfter,
 			profile.HLSAlwaysRemux,
 			profile.HLSSegmentCount,
 			profile.HLSSegmentDuration,
 			profile.HLSPartDuration,
+			profile.LogLevel,
 		)
 	})
 	return profile
@@ -277,6 +280,7 @@ func loadStreamProfile() streamProfile {
 		HLSPartDuration:          envDuration("MEDIAMTX_HLS_PART_DURATION", defaultHLSPartDuration, 100*time.Millisecond, 2*time.Second),
 		SourceOnDemand:           envBool("MEDIAMTX_SOURCE_ON_DEMAND", defaultSourceOnDemand),
 		SourceOnDemandCloseAfter: envDuration("MEDIAMTX_SOURCE_ON_DEMAND_CLOSE_AFTER", defaultSourceOnDemandCloseAfter, time.Second, 5*time.Minute),
+		LogLevel:                 envEnum("MEDIAMTX_LOG_LEVEL", defaultLogLevel, []string{"error", "warn", "info", "debug"}),
 	}
 
 	if cfg.HLSPartDuration >= cfg.HLSSegmentDuration {
@@ -337,4 +341,18 @@ func envDuration(name string, fallback, min, max time.Duration) time.Duration {
 		return fallback
 	}
 	return parsed
+}
+
+func envEnum(name, fallback string, allowed []string) string {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	if v == "" {
+		return fallback
+	}
+	for _, option := range allowed {
+		if v == option {
+			return v
+		}
+	}
+	log.Printf("streams: invalid %s=%q (allowed: %s); using %q", name, v, strings.Join(allowed, ", "), fallback)
+	return fallback
 }

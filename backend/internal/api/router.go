@@ -176,6 +176,20 @@ func NewRouter(
 	// HLS reverse proxy → mediamtx port 8888 (binary data, not gzipped)
 	hlsTarget := &url.URL{Scheme: "http", Host: "127.0.0.1:8888"}
 	hlsProxy := httputil.NewSingleHostReverseProxy(hlsTarget)
+	hlsProxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		log.Printf("hls: upstream error path=%s err=%v", r.URL.Path, err)
+		http.Error(w, "hls upstream unavailable", http.StatusBadGateway)
+	}
+	hlsProxy.ModifyResponse = func(resp *http.Response) error {
+		if resp.StatusCode >= http.StatusBadRequest {
+			path := ""
+			if resp.Request != nil && resp.Request.URL != nil {
+				path = resp.Request.URL.Path
+			}
+			log.Printf("hls: upstream status path=%s status=%d", path, resp.StatusCode)
+		}
+		return nil
+	}
 	mux.Handle("/hls/", http.StripPrefix("/hls", hlsProxy))
 
 	// Embedded frontend SPA

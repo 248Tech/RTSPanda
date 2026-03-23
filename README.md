@@ -6,7 +6,7 @@ Project tags: `rtsp` `video-surveillance` `golang` `react` `fastapi` `onnxruntim
 
 ## What This README Covers
 
-This guide is the production operator walkthrough for RTSPanda v0.1.0:
+This guide is the production operator walkthrough for RTSPanda v0.1.1:
 
 1. Choose the correct deployment mode
 2. Prepare the host safely
@@ -40,6 +40,8 @@ All supported setup paths are listed here:
 | Pi mode (viewer/snapshot AI) | `./scripts/pi-up.sh` | Pi edge node |
 | Pi + remote AI worker | `AI_WORKER_URL=... ./scripts/pi-up.sh` | Pi ingest + server inference |
 | Standalone AI worker | `PI_DEPLOYMENT_MODE=ai-worker ./scripts/pi-up.sh` (server only) | Dedicated inference host |
+| **Android no-Docker (2-node)** | `AI_WORKER_URL=... ./scripts/android-up.sh` | **Android/Termux + remote YOLO** |
+| **Android no-Docker (3-node)** | Android `viewer` + Pi `pi-up.sh` relay | **Android hub + Pi detection offload** |
 | Viewer mode (binary) | `RTSPANDA_MODE=viewer ./rtspanda` | No Docker monitoring |
 | Viewer mode (Docker) | `RTSPANDA_MODE=viewer docker compose up --build -d rtspanda` | Lightweight container deployment |
 | Source development setup | run backend/frontend/worker directly | Local development and debugging |
@@ -136,7 +138,36 @@ export PI_DEPLOYMENT_MODE=ai-worker
 ./scripts/pi-up.sh
 ```
 
-### Method E: Viewer Mode (binary, no Docker)
+### Method E: Android No-Docker (Termux)
+
+See [docs/android-no-docker.md](./docs/android-no-docker.md) for the full walkthrough.
+
+**Quick start (2-node — Android + remote AI server):**
+
+On your AI server (Docker required):
+```bash
+docker compose -f docker-compose.yml -f docker-compose.standalone.yml \
+  --profile ai-worker up -d --no-build ai-worker-standalone
+```
+
+On Android in Termux:
+```bash
+pkg install -y golang ffmpeg wget
+git clone https://github.com/248Tech/RTSPanda.git ~/RTSPanda
+cd ~/RTSPanda/backend && go build -o ../rtspanda ./cmd/rtspanda
+# Download mediamtx ARM64 binary — see docs/android-no-docker.md Step 4
+export AI_WORKER_URL=http://<ai-server-ip>:8090
+./scripts/android-up.sh
+```
+
+Validation:
+```bash
+curl -s http://127.0.0.1:8080/api/v1/health
+curl -s http://127.0.0.1:8080/api/v1/detections/health
+# ai_mode should be "remote"
+```
+
+### Method F: Viewer Mode (binary, no Docker)
 
 Build or use a compiled binary, then run:
 
@@ -144,13 +175,13 @@ Build or use a compiled binary, then run:
 RTSPANDA_MODE=viewer DATA_DIR=./data ./rtspanda
 ```
 
-### Method F: Viewer Mode (Docker service only)
+### Method G: Viewer Mode (Docker service only)
 
 ```bash
 RTSPANDA_MODE=viewer docker compose up --build -d rtspanda
 ```
 
-### Method G: Source Development Setup
+### Method H: Source Development Setup
 
 Backend:
 
@@ -224,6 +255,13 @@ curl -X POST http://127.0.0.1:8080/api/v1/streams/reset
 | `AI_MODE` | `local` | `local` or `remote` |
 | `AI_WORKER_URL` | empty | Remote worker endpoint |
 | `DETECTOR_URL` | empty | Direct detector override |
+
+### Thermal monitor (ARM Pi-mode)
+
+| Variable | Default | Notes |
+|---------|---------|------|
+| `THERMAL_MONITOR_ENABLED` | `false` (except auto-on arm64+pi) | Force thermal monitor on/off |
+| `THERMAL_AUTO_RESUME` | `false` | Keep manual recovery behavior after thermal events |
 
 ### Snapshot AI (Pi mode)
 
@@ -322,11 +360,12 @@ git pull
 
 ## Documentation Index
 
+- [Android no-Docker setup](./docs/android-no-docker.md)
 - [Raspberry Pi setup](./docs/raspberry-pi.md)
-- [Cluster mode (Pi + remote AI)](./docs/cluster-mode.md)
+- [Cluster mode (Pi + remote AI + Android 3-node)](./docs/cluster-mode.md)
 - [Streaming tuning](./docs/streaming-tuning.md)
 - [Testing strategy](./docs/testing-strategy.md)
-- [Release notes v0.0.9](./RELEASE_NOTES_v0.0.9.md)
+- [Release notes v0.1.1](./RELEASE_NOTES_v0.1.1.md)
 
 ---
 

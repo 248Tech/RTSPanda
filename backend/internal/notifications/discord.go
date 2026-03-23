@@ -307,6 +307,45 @@ func (n *DiscordNotifier) SendCameraRecording(
 	return n.sendWebhookPayload(ctx, webhookURL, payload, []webhookAttachment{*clip})
 }
 
+func (n *DiscordNotifier) SendSystemAlert(
+	ctx context.Context,
+	camera cameras.Camera,
+	title string,
+	description string,
+	color int,
+) error {
+	webhookURL := strings.TrimSpace(camera.DiscordWebhookURL)
+	if webhookURL == "" {
+		return nil
+	}
+	if strings.TrimSpace(title) == "" {
+		title = "RTSPanda System Alert"
+	}
+	if color == 0 {
+		color = 15158332
+	}
+
+	mention := strings.TrimSpace(camera.DiscordMention)
+	payload := discordWebhookPayload{
+		Content: strings.TrimSpace(strings.Join([]string{
+			mention,
+			fmt.Sprintf("System alert for **%s**", camera.Name),
+		}, "\n")),
+		Embeds: []discordEmbed{
+			{
+				Title:       title,
+				Description: description,
+				Color:       color,
+				Timestamp:   time.Now().UTC().Format(time.RFC3339),
+				Footer:      &discordFooter{Text: "RTSPanda"},
+			},
+		},
+		AllowedMentions: &discordAllowedMentions{Parse: allowedMentionParse(mention)},
+	}
+
+	return n.sendJSONWebhook(ctx, webhookURL, payload)
+}
+
 func (n *DiscordNotifier) allowSend(cameraID string, cooldownSeconds int) bool {
 	if cooldownSeconds <= 0 {
 		return true

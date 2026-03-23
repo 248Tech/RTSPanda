@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.1.1 - 2026-03-22
+
+### Added
+- Android native startup script for Termux deployments: `scripts/android-up.sh` (no Docker, no root).
+- New thermal monitoring package: `backend/internal/thermal/monitor.go`.
+- Thermal band reporting in `GET /api/v1/system/stats` via `thermal_band`.
+- Discord system alerts on thermal Hot-band entry for cameras with webhook configuration.
+
+### Changed
+- Runtime startup now conditionally enables thermal monitoring on `arm64 + pi` mode (or `THERMAL_MONITOR_ENABLED=true`).
+- Added thermal transition logging with WARN/ERROR/CRITICAL severity labels.
+- README and quickstart updated for Android no-Docker setup and current release guidance.
+
 ## v0.1.0 - 2026-03-22
 
 ### Added

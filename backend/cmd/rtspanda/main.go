@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +26,7 @@ import (
 	"github.com/rtspanda/rtspanda/internal/settings"
 	"github.com/rtspanda/rtspanda/internal/snapshotai"
 	"github.com/rtspanda/rtspanda/internal/streams"
+	"github.com/rtspanda/rtspanda/internal/thermal"
 	"github.com/rtspanda/rtspanda/internal/videostorage"
 )
 
@@ -121,6 +124,20 @@ func main() {
 	}
 	if err := streamMgr.Start(ctx, cameraList); err != nil {
 		log.Fatalf("start streams: %v", err)
+	}
+
+	// ── Thermal monitor (Android/Pi focus) ───────────────────────────────────
+	thermalEnabled := shouldStartThermalMonitor(deployMode)
+	thermalAutoResume := envBoolOrDefault("THERMAL_AUTO_RESUME", false)
+	thermal.Start(ctx, thermal.Config{
+		Enabled:      thermalEnabled,
+		AutoResume:   thermalAutoResume,
+		PollInterval: 15 * time.Second,
+	})
+	if thermalEnabled {
+		thermalEvents := make(chan thermal.ThermalBandEvent, 16)
+		thermal.Subscribe(thermalEvents)
+		go runThermalEventLoop(ctx, thermalEvents, cameraSvc, discordNotifier)
 	}
 
 	// ── YOLO detection manager ─────────────────────────────────────────────────
@@ -260,4 +277,93 @@ func envBoolOrDefault(key string, fallback bool) bool {
 		return fallback
 	}
 	return b
+}
+
+func shouldStartThermalMonitor(deployMode mode.Mode) bool {
+	if envBoolOrDefault("THERMAL_MONITOR_ENABLED", false) {
+		return true
+	}
+	return runtime.GOARCH == "arm64" && deployMode == mode.ModePi
+}
+
+func runThermalEventLoop(
+	ctx context.Context,
+	events <-chan thermal.ThermalBandEvent,
+	cameraSvc *cameras.Service,
+	notifier *notifications.DiscordNotifier,
+) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-events:
+			logThermalTransition(event)
+			if event.To == thermal.ThermalBandHot && event.From < thermal.ThermalBandHot {
+				notifyThermalHotEntry(ctx, event, cameraSvc, notifier)
+			}
+		}
+	}
+}
+
+func logThermalTransition(event thermal.ThermalBandEvent) {
+	msg := fmt.Sprintf(
+		"thermal transition: %s -> %s (temp=%.1fC source=%s)",
+		event.From.String(),
+		event.To.String(),
+		event.TemperatureC,
+		event.Source,
+	)
+
+	switch event.To {
+	case thermal.ThermalBandWarm:
+		log.Printf("WARN %s", msg)
+	case thermal.ThermalBandHot:
+		log.Printf("ERROR %s", msg)
+	case thermal.ThermalBandCritical:
+		log.Printf("CRITICAL %s", msg)
+	default:
+		log.Printf("WARN %s", msg)
+	}
+}
+
+func notifyThermalHotEntry(
+	ctx context.Context,
+	event thermal.ThermalBandEvent,
+	cameraSvc *cameras.Service,
+	notifier *notifications.DiscordNotifier,
+) {
+	cameraList, err := cameraSvc.List()
+	if err != nil {
+		log.Printf("WARN thermal: list cameras for hot-band alert failed: %v", err)
+		return
+	}
+
+	sent := 0
+	for _, camera := range cameraList {
+		if strings.TrimSpace(camera.DiscordWebhookURL) == "" {
+			continue
+		}
+
+		alertCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := notifier.SendSystemAlert(
+			alertCtx,
+			camera,
+			"Thermal Alert: HOT",
+			fmt.Sprintf(
+				"Host entered HOT thermal band (%.1fC via %s). Consider reducing camera count or increasing detection sample interval.",
+				event.TemperatureC,
+				event.Source,
+			),
+			15105570,
+		)
+		cancel()
+		if err != nil {
+			log.Printf("WARN thermal: failed sending hot-band Discord alert camera=%s err=%v", camera.ID, err)
+			continue
+		}
+		sent++
+	}
+	if sent > 0 {
+		log.Printf("WARN thermal: sent hot-band Discord alerts to %d camera webhook(s)", sent)
+	}
 }

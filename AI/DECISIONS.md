@@ -380,6 +380,101 @@ This file records key decisions made during planning. Before changing anything l
 
 ---
 
+## DEC-021 — Android (Termux) is a supported no-Docker deployment target for Pi-mode
+
+**Decision:** Android devices running Termux are an officially supported RTSPanda deployment target, using Pi-mode behavior without Docker. The Go binary, mediamtx, and FFmpeg run as native ARM64 processes. Docker is not required and is not supported in this path.
+
+**Rationale:**
+- Android ARM64 hardware (phones, tablets, dedicated NVR devices) is widely available, affordable, and permanently LAN-connected.
+- Termux provides a complete Linux userspace including Go, FFmpeg, and system binaries without root.
+- Pi-mode behavior (remote YOLO worker + Snapshot AI) maps directly to Android constraints: no local YOLO inference, no Python, no Docker.
+- Extending support to Android increases the addressable operator base without changing the core binary.
+
+**Boundaries (what Android does NOT support):**
+- Docker (no container runtime in Termux without root)
+- Local YOLO inference (DEC-018 applies equally to Android)
+- Local vision models (DEC-020 applies equally to Android)
+- 32-bit ARM (armv7) — untested and not recommended
+
+**Implications:**
+- `scripts/android-up.sh` is the Android entry point (analogous to `pi-up.sh`).
+- Android deployments always use Pi-mode or viewer mode.
+- Go binary must compile correctly for `GOARCH=arm64 GOOS=linux` (verified at build time).
+- `docs/android-no-docker.md` is the operator reference.
+
+**Status:** Decided (planning). Implementation in Phase A of ANDROID_NO_DOCKER_REMOTE_YOLO initiative.
+
+---
+
+## DEC-022 — Intermediary Raspberry Pi is a topology recommendation, not a required component
+
+**Decision:** A Raspberry Pi placed between an Android hub and a remote YOLO server (3-node topology) is a documented and supported pattern, but is optional and triggered by operator-observable criteria, not enforced by software.
+
+**Rationale:**
+- Android thermal throttling under sustained FFmpeg load is a real risk, but severity varies by device model, ambient temperature, and workload.
+- Forcing a Pi into every Android deployment adds cost and complexity for users who may never hit the thermal ceiling.
+- The decision gate criteria (camera count, resolution, sustained temperature) are objective and operator-verifiable.
+- The Pi's role in 3-node is well-defined: it reads Android's mediamtx RTSP re-streams, handles FFmpeg frame extraction, and forwards to the remote YOLO worker — leaving Android to handle only ingest and HLS serving.
+
+**Decision gate (any two criteria = 3-node recommended):**
+- Camera count ≥ 4 on Android
+- Any camera at resolution ≥ 1080p with detection enabled
+- Detection sample interval < 15 seconds globally or per-camera
+- Sustained Android temperature ≥ 55°C for 10+ continuous minutes at 2-node
+
+**Single-criterion override (always 3-node):**
+- Sustained temperature ≥ 65°C at 2-node
+- Camera count ≥ 6 on Android
+
+**Implications:**
+- In 3-node mode, Android and Pi run separate RTSPanda instances with separate SQLite databases. Camera configs must be manually synchronized.
+- Pi reads camera streams from Android's mediamtx re-streams (`rtsp://<android-ip>:8554/<camera-name>`), not directly from physical cameras.
+- `scripts/android-3node-hub.sh` and `scripts/pi-detection-relay.sh` are the operator tools for 3-node.
+- A future Config Sync feature is out of scope for this initiative.
+
+**Status:** Decided (planning). Implementation in Phase D of ANDROID_NO_DOCKER_REMOTE_YOLO initiative.
+
+---
+
+## DEC-023 — Thermal policy for Android Pi-mode uses explicit temperature bands with hysteresis
+
+**Decision:** RTSPanda Pi-mode on ARM deployments (Android primary, Pi secondary) implements a four-band thermal policy: Normal (< 45°C), Warm (45–54°C), Hot (55–64°C), Critical (≥ 65°C). Each band has defined detection behavior. Band recovery requires sustained cool-down (hysteresis) to prevent flapping.
+
+**Rationale:**
+- Android throttles CPU aggressively when sustained heat is detected by the kernel, which disrupts FFmpeg frame extraction and RTSP ingest reliability.
+- Without explicit thermal policy, RTSPanda could enter a spiral where detection load causes heat, which causes throttling, which causes detection timeout failures.
+- Explicit bands give operators observable state and predictable behavior rather than silent degradation.
+- Hysteresis prevents rapid oscillation between states when temperature hovers near a threshold.
+
+**Band actions:**
+- Normal: full operation.
+- Warm: detection sample interval floor raised to 30 seconds.
+- Hot: all detection suspended; streaming continues.
+- Critical: detection suspended; new stream opens blocked; active streams maintained.
+
+**Hysteresis:**
+- Critical → Hot recovery: < 60°C sustained 5 minutes.
+- Hot → Warm recovery: < 50°C sustained 5 minutes.
+- Warm → Normal recovery: < 42°C sustained 3 minutes.
+
+**Auto-resume:** Disabled by default (`THERMAL_AUTO_RESUME=false`). Operator must restart or explicitly enable auto-resume to prevent re-entry into thermal spiral after a Hot/Critical event.
+
+**Temperature source priority:**
+1. `/sys/class/thermal/thermal_zone*/temp` (readable without root in most Android kernels).
+2. CPU load average as proxy (load > 2.0 on 4-core ≈ Hot equivalent).
+3. Disabled mode with warning if neither is available.
+
+**Implications:**
+- New `backend/internal/thermal/` package.
+- Thermal monitor starts only on arm64 + Pi-mode unless overridden.
+- `GET /api/v1/system/stats` gains `thermal_band` field.
+- `GET /api/v1/detections/health` gains `status: suspended_thermal` state.
+- Discord alert on Hot/Critical entry if camera has webhook configured.
+
+**Status:** Decided (planning). Implementation in Phases B and C of ANDROID_NO_DOCKER_REMOTE_YOLO initiative.
+
+---
+
 ## DEC-012 — Discord rich alerts are emitted from detection manager via notifier boundary
 
 **Decision:** Send Discord alerts from backend detection pipeline through a notifier interface.

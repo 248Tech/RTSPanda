@@ -1,6 +1,59 @@
 # RTSPanda — Handoff
 
-## Latest Handoff: 2026-03-18 — v0.0.6 Performance + Observability + System Monitor
+## Latest Handoff: 2026-03-22 — Android No-Docker Planning Package
+
+### Summary
+
+This session produced the complete planning package for the Android No-Docker + Remote YOLO + Thermal Policy initiative. No runtime code was written. All deliverables are documentation and planning files.
+
+**What was produced:**
+
+| File | Type | Status |
+|------|------|--------|
+| `AI/FEATURES/ANDROID_NO_DOCKER_REMOTE_YOLO.md` | Feature spec | New — complete |
+| `AI/DECISIONS.md` | DEC-021, DEC-022, DEC-023 added | Updated |
+| `AI/ARCHITECTURE.md` | Android 2-node + 3-node + thermal diagrams | Updated |
+| `AI/CURRENT_FOCUS.md` | Android initiative set as active sprint | Updated |
+| `AI/TODO.md` | TASK-AND-A through TASK-AND-E added | Updated |
+| `docs/android-no-docker.md` | Operator guide | New — complete |
+| `docs/cluster-mode.md` | Intermediary Pi section added | Updated |
+| `docs/raspberry-pi.md` | Conflicting guidance removed | Updated |
+| `README.md` | Android row in setup matrix | Updated |
+
+### Key Decisions Locked (this session)
+
+- **DEC-021:** Android (Termux) is an officially supported no-Docker Pi-mode deployment target.
+- **DEC-022:** Intermediary Pi is an optional 3-node pattern triggered by operator-observable criteria (not enforced in software).
+- **DEC-023:** Four-band thermal policy (Normal/Warm/Hot/Critical) with hysteresis is required for Android Pi-mode.
+
+### Immediate Next Steps
+
+**Next recommended tool: Aider**
+
+Ready to implement in this order:
+
+1. **TASK-AND-A** (no dependencies) + **TASK-AND-B** (no dependencies) — run in parallel
+2. **TASK-AND-C** (depends on B)
+3. **TASK-AND-D** (depends on A)
+4. **TASK-AND-E** (depends on A — doc polish after scripts exist)
+
+### Open Questions Requiring PM Decision Before Implementation
+
+1. **Camera config sync scope:** Include a `--export-cameras` / `--import-cameras` CLI flag in this initiative, or defer?
+2. **`THERMAL_AUTO_RESUME` default:** `false` (safe, requires operator action) vs `true` (autonomous). Current proposal: `false`.
+3. **Re-stream port default:** 8554 (mediamtx default) or a different port to reduce LAN conflict risk?
+4. **Termux service integration:** `termux-services` startup in scope for Phase A, or `tmux`/`screen` wrapper acceptable?
+5. **Thermal disabled mode behavior:** Silent proceed with warning, or refuse to start detection?
+
+### Risks to Flag
+
+- Android battery optimization and Wi-Fi sleep are the most common operator failure modes. Documentation covers both — but consider adding a runtime check in `android-up.sh` that warns if `termux-wake-lock` is not available.
+- 3-node dual-database (Android + Pi separate DBs) is a real UX friction point. Operator must manually keep camera configs in sync. This is acceptable for v1 but should be tracked as a future Config Sync feature.
+- `raspberry-pi.md` previously referenced `PI_DEPLOYMENT_MODE=full` which allows local YOLO on Pi — this conflicts with DEC-018. That section has been updated in this session to note it is not recommended.
+
+---
+
+## Previous Handoff: 2026-03-18 — v0.0.6 Performance + Observability + System Monitor
 
 ### Summary
 

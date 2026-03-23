@@ -270,6 +270,111 @@ Pages: Dashboard, CameraView, MultiCameraView, Settings, Guides
 
 ---
 
+---
+
+## Android No-Docker Architecture
+
+Android (Termux) is a supported RTSPanda deployment target using Pi-mode behavior. No Docker. Go binary, mediamtx, and FFmpeg run as native ARM64 processes.
+
+### Mode: Android 2-Node (Termux + Remote AI Worker)
+
+```
+┌──────────────────────────────────────────────┐        ┌────────────────────────────┐
+│  Android Device (Termux, no Docker)          │        │  AI Server (x86, Docker)   │
+│                                              │  LAN   │                            │
+│  rtspanda (Go binary, RTSPANDA_MODE=pi)      │        │  ai-worker (FastAPI ONNX)  │
+│  ├── mediamtx subprocess                     │◄──────►│  port 8090                 │
+│  ├── SQLite (DATA_DIR)                       │        │                            │
+│  ├── FFmpeg (frame capture)                  │        └────────────────────────────┘
+│  ├── Snapshot AI optional (Pi mode)          │
+│  └── React UI (embedded, port 8080)         │
+│                                              │
+│  Detection: FFmpeg → HTTP frames → server    │
+└──────────────────────────────────────────────┘
+         ▲         ▲         ▲
+         │ RTSP    │ RTSP    │ RTSP
+     Camera 1  Camera 2  Camera 3
+```
+
+### Mode: Android 3-Node (Thermally Constrained — Android Hub + Intermediary Pi + AI Server)
+
+Use when: camera count ≥ 4, resolution ≥ 1080p, sample interval < 15 s, or sustained temperature ≥ 55°C at 2-node.
+
+```
+┌────────────────────────────────────────┐
+│  Android Device (Termux)               │
+│  RTSPANDA_MODE=viewer                  │
+│  ├── mediamtx subprocess               │
+│  │   └── RTSP re-stream LAN port 8554  │
+│  ├── SQLite (camera metadata)          │
+│  └── React UI (embedded, port 8080)   │
+└────────────────────────────────────────┘
+         ▲          ▲
+         │ RTSP     │ RTSP
+     Camera 1   Camera 2-N
+         │
+         ▼  RTSP re-stream  rtsp://<android>:8554/<name>
+┌────────────────────────────────────────────┐
+│  Intermediary Raspberry Pi                 │
+│  RTSPANDA_MODE=pi                          │
+│  ├── mediamtx subprocess                   │
+│  ├── SQLite (detection events)             │
+│  ├── FFmpeg (frame capture from re-streams)│
+│  └── AI_WORKER_URL=http://<server>:8090    │
+└────────────────────────────────────────────┘
+                    │ HTTP frames
+                    ▼
+         ┌──────────────────────────┐
+         │  AI Server (x86, Docker) │
+         │  ai-worker port 8090     │
+         └──────────────────────────┘
+```
+
+**3-node data flows:**
+
+- Android mediamtx ingests camera RTSP and re-streams on port 8554 (LAN-accessible).
+- Pi mediamtx reads Android re-streams as its camera sources.
+- Pi FFmpeg extracts frames, dispatches to remote YOLO server.
+- Detection events persist in Pi SQLite; Discord alerts fire from Pi.
+- Android and Pi have separate databases. Camera configs must be manually synchronized.
+
+### Thermal Policy (Android Pi-mode)
+
+A background goroutine in `backend/internal/thermal/` samples device temperature and enforces band-based policy:
+
+```
+Temperature → ThermalMonitor goroutine
+                    │
+          ┌─────────▼──────────┐
+          │  Band Detection     │
+          │  + Hysteresis Timer │
+          └─────────┬──────────┘
+                    │ ThermalBandEvent
+         ┌──────────▼──────────┐
+         │  Detection Manager  │
+         │  (subscribe + act)  │
+         └─────────────────────┘
+```
+
+| Band | Temp | Detection Action |
+|------|------|-----------------|
+| Normal | < 45°C | Full operation |
+| Warm | 45–54°C | Sample interval floor → 30 s |
+| Hot | 55–64°C | Detection suspended |
+| Critical | ≥ 65°C | Detection suspended; new stream opens blocked |
+
+Recovery requires sustained cool-down (5 minutes at target threshold) before band downgrade.
+
+### Key Rules for Android
+
+1. Android does NOT run YOLO locally (DEC-018 and DEC-023).
+2. Android does NOT run Docker (DEC-021).
+3. In 3-node, Android is always the stream hub (viewer mode); Pi is always the detection relay.
+4. Thermal monitor reads `/sys/class/thermal/thermal_zone*/temp` or falls back to CPU load proxy.
+5. `THERMAL_AUTO_RESUME=false` by default — operator must explicitly re-enable detection after Hot/Critical.
+
+---
+
 ## Deployment
 
 ### docker-compose.yml profiles

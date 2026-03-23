@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rtspanda/rtspanda/internal/thermal"
 )
 
 var processStartTime = time.Now()
@@ -27,6 +29,7 @@ type SystemStats struct {
 	GOOS              string  `json:"goos"`
 	GOARCH            string  `json:"goarch"`
 	NumCPU            int     `json:"num_cpu"`
+	ThermalBand       string  `json:"thermal_band"`
 }
 
 // handleSystemStats: GET /api/v1/system/stats
@@ -46,6 +49,7 @@ func handleSystemStats(w http.ResponseWriter, _ *http.Request) {
 		GOOS:              runtime.GOOS,
 		GOARCH:            runtime.GOARCH,
 		NumCPU:            runtime.NumCPU(),
+		ThermalBand:       thermal.GetCurrentBand().String(),
 	}
 	writeJSON(w, http.StatusOK, stats)
 }

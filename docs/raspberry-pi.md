@@ -47,15 +47,17 @@ The Pi continues to:
 - capture frames with ffmpeg
 - forward frames over HTTP to the remote AI worker
 
-### 3. Full local stack on Pi
+### 3. Full local stack on Pi (not recommended)
 
-If you want the original all-in-one behavior on a capable Pi 4/5:
+Running the full local YOLO AI worker on a Pi is not recommended and is not a supported configuration. Raspberry Pi does not support real-time YOLO inference (see DEC-018):
 
-```bash
-PI_DEPLOYMENT_MODE=full ./scripts/pi-up.sh
-```
+- YOLOv8n ONNX requires ~400–600 MB RAM at runtime, consuming nearly all headroom on a 4 GB Pi running the full stack.
+- ONNX Runtime on arm64 runs at 3–8 FPS on Pi 4 CPU — not viable for real-time alerting.
+- Thermal throttling degrades performance under sustained load.
 
-This keeps the old single-machine layout and now uses only prebuilt ONNX models during the AI-worker image build.
+**Use remote AI worker (Mode 2 above) instead.** If you have a second machine available on the LAN, the Pi + remote worker split is the correct architecture for Pi deployments.
+
+For snap-based AI analysis on Pi without a remote worker, use Snapshot AI (Mode 1 with `SNAPSHOT_AI_ENABLED=true`).
 
 ## Model Options
 The AI worker is ONNX-only in Docker.

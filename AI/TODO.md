@@ -67,6 +67,108 @@ Last updated: 2026-03-18
 
 ---
 
+## Android No-Docker Initiative (Active Sprint)
+
+**Spec:** `AI/FEATURES/ANDROID_NO_DOCKER_REMOTE_YOLO.md`
+**Decisions locked:** DEC-021, DEC-022, DEC-023
+
+---
+
+### TASK-AND-A — Android binary + startup script
+
+- **Description:** Make `rtspanda` binary work in Termux without Docker dependency. Write `scripts/android-up.sh`.
+- **Owner:** Aider
+- **Dependencies:** None
+- **Deliverables:**
+  - `scripts/android-up.sh` — sets env, launches binary, handles Termux path conventions, runs `termux-wake-lock`
+  - Verified `GOARCH=arm64 GOOS=linux` binary works in Termux
+  - mediamtx ARM64 download documented
+  - FFmpeg Termux package confirmed compatible with existing `detections/capture.go` args
+- **Acceptance criteria:**
+  - `./scripts/android-up.sh` starts RTSPanda Pi-mode on Termux
+  - `/api/v1/health` returns 200
+  - `/api/v1/health/ready` passes DB + mediamtx probes
+  - One camera can be added and stream viewed from LAN browser
+- **Next tool:** Aider
+
+---
+
+### TASK-AND-B — Thermal monitor goroutine
+
+- **Description:** Implement `backend/internal/thermal/` package with four-band detection, hysteresis timers, and event pub/sub.
+- **Owner:** Aider
+- **Dependencies:** None (independent of TASK-AND-A)
+- **Deliverables:**
+  - `backend/internal/thermal/monitor.go` — reads `/sys/class/thermal/`, CPU-load fallback, disabled mode
+  - `ThermalBand` enum: Normal, Warm, Hot, Critical
+  - Hysteresis logic: 5-min cool-down for Hot/Critical transitions, 3-min for Warm
+  - `Subscribe(chan ThermalBandEvent)` interface for detection manager integration
+  - Thermal monitor starts only on arm64 + Pi-mode (or `THERMAL_MONITOR_ENABLED=true`)
+  - `GET /api/v1/system/stats` gains `thermal_band` field
+- **Acceptance criteria:**
+  - Simulated band changes emit correct log lines (WARN/ERROR/CRITICAL)
+  - `thermal_band` field appears in system stats response
+  - Discord alert fires on Hot entry when camera has webhook
+- **Next tool:** Aider
+
+---
+
+### TASK-AND-C — Detection throttle integration
+
+- **Description:** Wire `ThermalBandEvent` from thermal monitor into the detection sampler manager.
+- **Owner:** Aider
+- **Dependencies:** TASK-AND-B (thermal monitor package must exist)
+- **Deliverables:**
+  - Detection manager subscribes to `ThermalBandEvent` channel
+  - Warm: sample interval floor → max(configured, 30 s)
+  - Hot: pause all detection goroutines, drain in-flight FFmpeg captures
+  - Critical: drain detection goroutines, block new stream open requests
+  - Recovery: log resume event; auto-resume only if `THERMAL_AUTO_RESUME=true`
+  - `GET /api/v1/detections/health` gains `status: suspended_thermal` + `sample_interval_floor` fields
+- **Acceptance criteria:**
+  - At simulated Warm: detection health shows `sample_interval_floor: 30`
+  - At simulated Hot: detection health shows `status: suspended_thermal`
+  - At simulated Critical: all detection stopped; streaming still functional
+  - After recovery with `THERMAL_AUTO_RESUME=false`: detection remains suspended until restart
+- **Next tool:** Aider
+
+---
+
+### TASK-AND-D — 3-Node operator tooling
+
+- **Description:** Write startup scripts and verify end-to-end 3-node flow (Android hub + Pi relay + AI server).
+- **Owner:** Aider
+- **Dependencies:** TASK-AND-A
+- **Deliverables:**
+  - `scripts/android-3node-hub.sh` — starts RTSPanda in viewer mode; exposes mediamtx RTSP re-streams on port 8554
+  - `scripts/pi-detection-relay.sh` — starts RTSPanda Pi-mode on Pi; camera URLs point to Android re-streams; accepts `ANDROID_HUB_IP` env var
+  - Documents camera URL format: `rtsp://<android-ip>:8554/<camera-name>`
+- **Acceptance criteria:**
+  - Following `docs/android-no-docker.md` 3-node section reaches working state
+  - Two browser sessions: Android UI (`http://<android>:8080`) and Pi UI (`http://<pi>:8081`) both accessible
+  - Pi detection events appear in Pi dashboard
+- **Next tool:** Aider
+
+---
+
+### TASK-AND-E — Documentation alignment
+
+- **Description:** Ensure all docs accurately reflect Android no-Docker path and remove conflicting guidance.
+- **Owner:** Claude / Cursor
+- **Dependencies:** TASK-AND-A (scripts must exist before docs reference them)
+- **Deliverables:**
+  - `docs/android-no-docker.md` — operator walkthrough (written in this planning session, may need script path updates after TASK-AND-A)
+  - `docs/cluster-mode.md` — intermediary Pi pattern section (written in this planning session)
+  - `docs/raspberry-pi.md` — remove conflicting "full local AI on Pi" guidance; align with DEC-018
+  - `README.md` — Android no-Docker row in setup matrix
+- **Acceptance criteria:**
+  - No docs reference Docker for Android deployment
+  - No docs suggest local YOLO/AI on Pi or Android as a supported path
+  - README setup matrix includes Android row with link to `docs/android-no-docker.md`
+- **Next tool:** Cursor (for README/docs prose); Claude (for architecture alignment)
+
+---
+
 ## In Progress
 
 ### TASK-AI-003 — Detection event retention + cleanup policy

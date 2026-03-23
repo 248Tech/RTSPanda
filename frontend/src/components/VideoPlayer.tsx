@@ -24,6 +24,9 @@ export function captureVideoScreenshot(video: HTMLVideoElement, label: string) {
 
 export type PlayerState = 'idle' | 'loading' | 'playing' | 'error'
 
+const MAX_NETWORK_RETRIES = 8
+const NETWORK_RETRY_DELAY_MS = 1500
+
 export interface OverlayDetection {
   id: string
   label: string
@@ -77,6 +80,8 @@ export function VideoPlayer({
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const hlsUrlRef = useRef<string | null>(null)
+  const networkRetryCountRef = useRef(0)
+  const networkRetryTimerRef = useRef<number | null>(null)
   const [state, setState] = useState<PlayerState>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [videoSize, setVideoSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
@@ -95,6 +100,11 @@ export function VideoPlayer({
     const video = videoRef.current
     if (!video) return
 
+    if (networkRetryTimerRef.current !== null) {
+      window.clearTimeout(networkRetryTimerRef.current)
+      networkRetryTimerRef.current = null
+    }
+    networkRetryCountRef.current = 0
     setState('loading')
     setErrorMessage(null)
 
@@ -109,15 +119,35 @@ export function VideoPlayer({
         setState((s) => (s === 'error' ? s : 'loading'))
       })
       hls.on(Hls.Events.FRAG_BUFFERED, () => {
+        networkRetryCountRef.current = 0
         setState((s) => (s === 'error' ? s : 'playing'))
       })
       hls.on(Hls.Events.ERROR, (_, data) => {
-        if (data.fatal) {
-          setState('error')
-          setErrorMessage(
-            data.type === Hls.ErrorTypes.NETWORK_ERROR ? 'Network error' : 'Playback error'
-          )
+        if (!data.fatal) {
+          return
         }
+
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          const retryCount = networkRetryCountRef.current + 1
+          networkRetryCountRef.current = retryCount
+
+          if (retryCount <= MAX_NETWORK_RETRIES) {
+            setState('loading')
+            setErrorMessage(null)
+            networkRetryTimerRef.current = window.setTimeout(() => {
+              networkRetryTimerRef.current = null
+              hls.startLoad()
+            }, NETWORK_RETRY_DELAY_MS)
+            return
+          }
+
+          setState('error')
+          setErrorMessage('Network error')
+          return
+        }
+
+        setState('error')
+        setErrorMessage('Playback error')
       })
 
       hls.loadSource(url)
@@ -153,6 +183,10 @@ export function VideoPlayer({
 
     return () => {
       window.clearTimeout(loadTimer)
+      if (networkRetryTimerRef.current !== null) {
+        window.clearTimeout(networkRetryTimerRef.current)
+        networkRetryTimerRef.current = null
+      }
       const hls = hlsRef.current
       if (hls) {
         hls.destroy()

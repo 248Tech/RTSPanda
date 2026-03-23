@@ -29,6 +29,7 @@ const (
 	defaultSourceOnDemand           = false
 	defaultSourceOnDemandCloseAfter = 10 * time.Second
 	defaultLogLevel                 = "warn"
+	defaultRTSPTransport            = "tcp"
 )
 
 var (
@@ -69,8 +70,8 @@ paths:
     sourceOnDemandCloseAfter: {{$.Profile.SourceOnDemandCloseAfter}}
 {{- end}}
     # Docker + some camera vendors can break UDP RTP delivery.
-    # Force TCP interleaved RTP for consistent connectivity.
-    rtspTransport: tcp
+    # Transport is configurable for camera compatibility.
+    rtspTransport: {{.Profile.RTSPTransport}}
     rtspAnyPort: yes
     record: {{if .RecordEnabled}}yes{{else}}no{{end}}
 {{- end}}
@@ -100,6 +101,7 @@ type streamProfile struct {
 	SourceOnDemand           bool
 	SourceOnDemandCloseAfter time.Duration
 	LogLevel                 string
+	RTSPTransport            string
 }
 
 type proc struct {
@@ -184,7 +186,7 @@ func apiAddPath(e cameraEntry) error {
 	bodyData := map[string]any{
 		"source":         e.RTSPURL,
 		"sourceOnDemand": cfg.SourceOnDemand,
-		"rtspTransport":  "tcp",
+		"rtspTransport":  cfg.RTSPTransport,
 		"rtspAnyPort":    true,
 		"record":         e.RecordEnabled,
 	}
@@ -259,7 +261,7 @@ func currentStreamProfile() streamProfile {
 	profileOnce.Do(func() {
 		profile = loadStreamProfile()
 		log.Printf(
-			"streams: mediamtx profile sourceOnDemand=%v closeAfter=%s hlsAlwaysRemux=%v segmentCount=%d segmentDuration=%s partDuration=%s logLevel=%s",
+			"streams: mediamtx profile sourceOnDemand=%v closeAfter=%s hlsAlwaysRemux=%v segmentCount=%d segmentDuration=%s partDuration=%s logLevel=%s rtspTransport=%s",
 			profile.SourceOnDemand,
 			profile.SourceOnDemandCloseAfter,
 			profile.HLSAlwaysRemux,
@@ -267,6 +269,7 @@ func currentStreamProfile() streamProfile {
 			profile.HLSSegmentDuration,
 			profile.HLSPartDuration,
 			profile.LogLevel,
+			profile.RTSPTransport,
 		)
 	})
 	return profile
@@ -281,6 +284,7 @@ func loadStreamProfile() streamProfile {
 		SourceOnDemand:           envBool("MEDIAMTX_SOURCE_ON_DEMAND", defaultSourceOnDemand),
 		SourceOnDemandCloseAfter: envDuration("MEDIAMTX_SOURCE_ON_DEMAND_CLOSE_AFTER", defaultSourceOnDemandCloseAfter, time.Second, 5*time.Minute),
 		LogLevel:                 envEnum("MEDIAMTX_LOG_LEVEL", defaultLogLevel, []string{"error", "warn", "info", "debug"}),
+		RTSPTransport:            envEnum("MEDIAMTX_RTSP_TRANSPORT", defaultRTSPTransport, []string{"udp", "multicast", "tcp", "automatic"}),
 	}
 
 	if cfg.HLSPartDuration >= cfg.HLSSegmentDuration {

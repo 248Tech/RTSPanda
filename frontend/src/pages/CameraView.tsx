@@ -36,6 +36,7 @@ interface DetectionEventGroup {
 
 const DETECTION_POLL_INTERVAL_MS = 3000
 const OVERLAY_STALE_AFTER_MS = 12000
+const STREAM_POLL_INTERVAL_MS = 5000
 
 function formatDateTime(value: string): string {
   const d = new Date(value)
@@ -92,10 +93,8 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
   const fetchCameraAndStream = useCallback(async () => {
     setError(null)
     try {
-      const [cameraRes, streamRes] = await Promise.all([
-        getCamera(cameraId),
-        getStreamInfo(cameraId),
-      ])
+      const cameraRes = await getCamera(cameraId)
+      const streamRes = await getStreamInfo(cameraId)
       setCamera(cameraRes)
       setHlsUrl(streamRes.hls_url || null)
       setStreamStatus(streamRes.status)
@@ -106,6 +105,17 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
       setStreamStatus('offline')
     } finally {
       setLoading(false)
+    }
+  }, [cameraId])
+
+  const refreshStreamInfo = useCallback(async () => {
+    try {
+      const streamRes = await getStreamInfo(cameraId)
+      setHlsUrl(streamRes.hls_url || null)
+      setStreamStatus(streamRes.status)
+    } catch {
+      // Keep last known URL so the player can continue if transient probes fail.
+      setStreamStatus('offline')
     }
   }, [cameraId])
 
@@ -129,6 +139,13 @@ export default function CameraView({ cameraId, onBack, onNavigateSettings }: Cam
   useEffect(() => {
     fetchCameraAndStream()
   }, [fetchCameraAndStream])
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      void refreshStreamInfo()
+    }, STREAM_POLL_INTERVAL_MS)
+    return () => clearInterval(id)
+  }, [refreshStreamInfo])
 
   useEffect(() => {
     fetchDetectionEvents(true)

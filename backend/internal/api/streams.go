@@ -12,7 +12,10 @@ func (s *server) handleGetStream(w http.ResponseWriter, r *http.Request) {
 	}
 	st := s.streams.StreamStatus(camera.ID)
 	hlsURL := ""
-	if st == "online" {
+	// Keep HLS URL available for enabled cameras even when stream status is
+	// still initializing, so sourceOnDemand streams can be activated by the
+	// first viewer request.
+	if camera.Enabled {
 		hlsURL = "/hls/camera-" + camera.ID + "/index.m3u8"
 	}
 	writeJSON(w, http.StatusOK, map[string]string{

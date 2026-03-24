@@ -30,6 +30,7 @@ type StreamManager interface {
 	OnCameraUpdated(c cameras.Camera)
 	StreamStatus(cameraID string) streams.StreamStatus
 	StreamStatusMap(cameraIDs []string) map[string]streams.StreamStatus
+	StreamDebug(cameraID string, cameraEnabled bool) streams.StreamDebug
 	ResetStream(cameraID string) error
 	ResetAllStreams()
 	IsReady() bool
@@ -126,6 +127,7 @@ func NewRouter(
 
 	// Stream status and control
 	apiMux.HandleFunc("GET /api/v1/cameras/{id}/stream", s.handleGetStream)
+	apiMux.HandleFunc("GET /api/v1/cameras/{id}/stream/debug", s.handleGetStreamDebug)
 	apiMux.HandleFunc("POST /api/v1/cameras/{id}/stream/reset", s.handleResetStream)
 	apiMux.HandleFunc("POST /api/v1/streams/reset", s.handleResetAllStreams)
 

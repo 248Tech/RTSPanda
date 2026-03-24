@@ -448,6 +448,7 @@ func (m *Manager) ensurePath(entry cameraEntry) error {
 	if err := apiAddPath(entry); err != nil {
 		return fmt.Errorf("add path %s: %w", name, err)
 	}
+	log.Printf("streams: mediamtx path added name=%s camera=%s", name, entry.ID)
 	m.pathCache.invalidate()
 	return nil
 }

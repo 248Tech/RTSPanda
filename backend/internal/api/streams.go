@@ -24,6 +24,16 @@ func (s *server) handleGetStream(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGetStreamDebug: GET /api/v1/cameras/{id}/stream/debug
+func (s *server) handleGetStreamDebug(w http.ResponseWriter, r *http.Request) {
+	camera, ok := s.getCameraByPathID(w, r)
+	if !ok {
+		return
+	}
+	dbg := s.streams.StreamDebug(camera.ID, camera.Enabled)
+	writeJSON(w, http.StatusOK, dbg)
+}
+
 // handleStreamStatusAll: GET /api/v1/cameras/stream-status
 // Returns the stream status for every camera in one mediamtx round-trip.
 // Response: { "camera-id": { "status": "online|offline|connecting|initializing", "hls_url": "..." }, ... }
@@ -49,7 +59,7 @@ func (s *server) handleStreamStatusAll(w http.ResponseWriter, _ *http.Request) {
 	for _, c := range cameras {
 		st := statusMap[c.ID]
 		hlsURL := ""
-		if st == "online" {
+		if c.Enabled {
 			hlsURL = "/hls/camera-" + c.ID + "/index.m3u8"
 		}
 		result[c.ID] = entry{

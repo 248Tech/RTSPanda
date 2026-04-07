@@ -13,6 +13,7 @@ hlsAlwaysRemux: no
 hlsSegmentCount: 3
 hlsSegmentDuration: 2s
 hlsPartDuration: 200ms
+hlsVariant: fmp4
 
 logLevel: warn
 
@@ -23,7 +24,7 @@ recordSegmentDuration: 1h
 paths:
 {{- range .Cameras}}
   camera-{{.ID}}:
-    source: {{.RTSPURL}}
+    source: {{quoted .RTSPURL}}
     sourceOnDemand: yes
     sourceOnDemandCloseAfter: 10s
     # Docker + some camera vendors can break UDP RTP delivery.

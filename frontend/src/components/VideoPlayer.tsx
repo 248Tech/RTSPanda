@@ -98,7 +98,9 @@ export function VideoPlayer({
 
   const loadSource = useCallback((url: string) => {
     const video = videoRef.current
-    if (!video) return
+    if (!video) {
+      return
+    }
 
     if (networkRetryTimerRef.current !== null) {
       window.clearTimeout(networkRetryTimerRef.current)
@@ -111,7 +113,11 @@ export function VideoPlayer({
     if (Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
+        // mediamtx serves regular HLS (fMP4); LL mode can stall until FRAG_BUFFERED with some playlists.
+        lowLatencyMode: false,
+        manifestLoadingTimeOut: 20000,
+        levelLoadingTimeOut: 20000,
+        fragLoadingTimeOut: 20000,
       })
       hlsRef.current = hls
 

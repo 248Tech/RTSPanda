@@ -245,6 +245,13 @@ func (m *Manager) watchdog(done <-chan error) {
 			return
 
 		case <-m.reloadCh:
+			m.mu.Lock()
+			entries := m.entries()
+			m.mu.Unlock()
+			if err := m.proc.writeConfig(entries); err != nil {
+				log.Printf("streams: reload aborted — config render failed (mediamtx left running): %v", err)
+				continue
+			}
 			m.proc.stop()
 			if done != nil {
 				select {
@@ -258,7 +265,12 @@ func (m *Manager) watchdog(done <-chan error) {
 			done, err = m.startProcess()
 			if err != nil {
 				log.Printf("streams: reload failed: %v", err)
-				done = nil
+				ch := make(chan error, 1)
+				go func() {
+					time.Sleep(10 * time.Second)
+					ch <- fmt.Errorf("reload retry")
+				}()
+				done = ch
 			} else {
 				log.Printf("streams: mediamtx reloaded")
 			}

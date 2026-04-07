@@ -63,6 +63,7 @@ func (m *Manager) StreamDebug(cameraID string, cameraEnabled bool) StreamDebug {
 		"hls_segment_count":            p.HLSSegmentCount,
 		"hls_segment_duration":         p.HLSSegmentDuration.String(),
 		"hls_part_duration":            p.HLSPartDuration.String(),
+		"hls_variant":                  p.HLSVariant,
 		"source_on_demand":             p.SourceOnDemand,
 		"source_on_demand_close_after": p.SourceOnDemandCloseAfter.String(),
 		"log_level":                    p.LogLevel,

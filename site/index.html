@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RTSPanda — Self-Hosted RTSP Camera Platform with AI Detection (Live Demo)</title>
+<meta name="description" content="RTSPanda is an open-source, self-hosted RTSP camera platform: browser live view, recording, YOLO or Frigate detection alerts, Discord notifications and Prometheus metrics. Go backend, React UI, runs on a server or Raspberry Pi. Try the live demo.">
+<meta name="keywords" content="RTSP camera viewer, self-hosted NVR, IP camera software, YOLO object detection, Frigate alternative, Raspberry Pi camera, mediamtx, HLS, Discord camera alerts, home surveillance, open source">
+<meta name="author" content="Joe Wayne / 248Tech LLC">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<link rel="canonical" href="https://248tech.github.io/RTSPanda/">
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0d0d12">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="RTSPanda">
+<meta property="og:title" content="RTSPanda — Self-Hosted RTSP Camera Platform">
+<meta property="og:description" content="Live view, recording, AI detection and Discord alerts for your IP cameras. Open source. Try the demo.">
+<meta property="og:url" content="https://248tech.github.io/RTSPanda/">
+<meta property="og:image" content="https://248tech.github.io/RTSPanda/assets/og-image.png">
+<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="RTSPanda — Self-Hosted RTSP Camera Platform">
+<meta name="twitter:description" content="Open-source NVR-style platform with AI detection. Try the live demo.">
+<meta name="twitter:image" content="https://248tech.github.io/RTSPanda/assets/og-image.png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"RTSPanda","applicationCategory":"MultimediaApplication","operatingSystem":"Linux, Raspberry Pi, Windows (Docker)","description":"Self-hosted RTSP camera platform with browser live view, recording, YOLO or Frigate detection alerts and Discord notifications.","url":"https://248tech.github.io/RTSPanda/","codeRepository":"https://github.com/248Tech/RTSPanda","license":"https://opensource.org/licenses/MIT","programmingLanguage":["Go","TypeScript","Python"],"softwareVersion":"0.1.1","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"author":{"@type":"Organization","name":"248Tech LLC","url":"https://github.com/248Tech"}}
+</script>
+<style>
+:root{--bg:#0d0d12;--panel:#14141c;--panel2:#191923;--line:#26262f;--text:#ececf1;--muted:#9a9aaa;--accent:#7c6cf0;--accent-h:#6a5ae0}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 Inter,"Segoe UI",system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:#a99ff5;text-decoration:none}a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.skip{position:absolute;left:-999px}.skip:focus{left:8px;top:8px;background:#fff;color:#000;padding:8px;z-index:99}
+.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+header.top{position:sticky;top:0;z-index:20;background:rgba(13,13,18,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+header.top .wrap{display:flex;align-items:center;gap:20px;height:60px}
+.logo{display:flex;align-items:center;gap:10px;color:var(--text);font-weight:700}.logo img{width:30px;height:30px;border-radius:7px}
+nav.links{margin-left:auto;display:flex;gap:18px;font-size:.9rem}nav.links a{color:var(--muted)}nav.links a:hover{color:var(--text);text-decoration:none}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:.75rem 1.3rem;border-radius:10px;font-weight:600;border:1px solid var(--line);background:var(--panel2);color:var(--text)}.btn:hover{text-decoration:none;border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 10px 30px rgba(124,108,240,.35)}.btn.primary:hover{background:var(--accent-h)}
+.hero{padding:72px 0 56px;background:radial-gradient(900px 440px at 15% -10%,rgba(124,108,240,.24),transparent),radial-gradient(600px 400px at 95% 20%,rgba(34,197,94,.1),transparent)}
+.hero .wrap{display:grid;grid-template-columns:1fr 1.05fr;gap:40px;align-items:center}
+.eyebrow{display:inline-block;font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#b8b0ff;border:1px solid rgba(124,108,240,.45);padding:.25rem .7rem;border-radius:99px}
+h1{font-size:clamp(2.1rem,5vw,3.3rem);line-height:1.1;margin:.9rem 0 1rem;letter-spacing:-.02em}h1 span{color:#a99ff5}
+.lead{font-size:1.1rem;color:var(--muted);max-width:54ch;margin:0 0 1.5rem}
+.cta{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+.badges{display:flex;gap:6px;flex-wrap:wrap}.badges img{height:20px}
+.creds{margin-top:18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;font-size:.88rem;max-width:470px}.creds code{background:#0b0b10;border:1px solid var(--line);padding:2px 7px;border-radius:6px;font-size:.82rem}
+.shot img{width:100%;border-radius:12px;border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 80px rgba(124,108,240,.15)}
+section{padding:64px 0}h2{font-size:clamp(1.5rem,3vw,2rem);margin:0 0 .5rem;letter-spacing:-.01em}.sub{color:var(--muted);margin:0 0 32px;max-width:70ch}
+.alt{background:var(--panel);border-block:1px solid var(--line)}
+.grid{display:grid;gap:16px}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:repeat(2,1fr)}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:20px}.card h3{margin:.2rem 0 .4rem;font-size:1.02rem}.card p{margin:0;color:var(--muted);font-size:.92rem}
+.ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;background:rgba(124,108,240,.16);font-size:1.15rem;margin-bottom:6px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;text-align:center}.stats b{display:block;font-size:2rem;color:#c9c3ff}.stats span{font-size:.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+table{width:100%;border-collapse:collapse;background:var(--panel2);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:.9rem}th,td{padding:.7rem .9rem;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em}tr:last-child td{border-bottom:0}
+pre.arch{margin:0;background:#08080c;border:1px solid var(--line);border-radius:12px;padding:20px;overflow:auto;font-size:.8rem;line-height:1.45;color:#cfcdf5}
+pre.code{background:#08080c;border:1px solid var(--line);border-radius:10px;padding:14px;overflow:auto;margin:10px 0 0;font-size:.82rem;color:#cfcdf5}
+code{font-family:ui-monospace,Consolas,monospace;font-size:.88em}
+.steps{counter-reset:s;display:grid;gap:12px;padding:0;list-style:none}.steps li{counter-increment:s;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:16px 16px 16px 58px;position:relative}
+.steps li::before{content:counter(s);position:absolute;left:16px;top:14px;width:28px;height:28px;border-radius:50%;background:var(--accent);display:grid;place-items:center;font-weight:700;font-size:.85rem}
+footer{border-top:1px solid var(--line);padding:32px 0;color:var(--muted);font-size:.86rem}footer .wrap{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}
+@media(max-width:900px){.hero .wrap{grid-template-columns:1fr}.g3{grid-template-columns:1fr 1fr}.stats{grid-template-columns:1fr 1fr}nav.links{display:none}}
+@media(max-width:560px){.g3,.g2{grid-template-columns:1fr}.hero{padding-top:40px}section{padding:44px 0}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top"><div class="wrap"><a class="logo" href="./"><img src="assets/favicon.png" alt="" width="30" height="30">RTSPanda</a>
+<nav class="links" aria-label="Sections"><a href="#features">Features</a><a href="#modes">Deployment</a><a href="#architecture">Architecture</a><a href="#run">Run it</a><a href="https://github.com/248Tech/RTSPanda">GitHub</a></nav>
+<a class="btn primary" href="demo/" style="padding:.45rem .9rem;font-size:.85rem">Live demo</a></div></header>
+<main id="main">
+<section class="hero"><div class="wrap">
+  <div>
+    <span class="eyebrow">Open source · MIT · Self-hosted</span>
+    <h1>Your cameras, <span>your server,</span> your rules.</h1>
+    <p class="lead">RTSPanda turns any RTSP/IP camera into browser live view, recordings and AI-powered alerts — one Go binary with an embedded React UI, a mediamtx relay and optional YOLO or Frigate detection. Runs on a server or a Raspberry Pi.</p>
+    <div class="cta"><a class="btn primary" href="demo/">▶ Open the live demo</a><a class="btn" href="https://github.com/248Tech/RTSPanda">★ View on GitHub</a></div>
+    <div class="badges" aria-label="Project badges">
+      <img alt="MIT License" src="https://img.shields.io/github/license/248Tech/RTSPanda?style=flat-square&color=7c6cf0">
+      <img alt="Release" src="https://img.shields.io/github/v/release/248Tech/RTSPanda?style=flat-square&color=7c6cf0">
+      <img alt="Last commit" src="https://img.shields.io/github/last-commit/248Tech/RTSPanda?style=flat-square&color=22c55e">
+      <img alt="Stars" src="https://img.shields.io/github/stars/248Tech/RTSPanda?style=flat-square&color=f59e0b">
+      <img alt="Go" src="https://img.shields.io/badge/Go-00ADD8?style=flat-square&logo=go&logoColor=white">
+      <img alt="React" src="https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB">
+      <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white">
+      <img alt="ONNX Runtime" src="https://img.shields.io/badge/ONNX-005CED?style=flat-square&logo=onnx&logoColor=white">
+      <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white">
+      <img alt="Raspberry Pi" src="https://img.shields.io/badge/Raspberry_Pi-A22846?style=flat-square&logo=raspberrypi&logoColor=white">
+    </div>
+    <div class="creds"><b>Demo admin — pre-filled on the login page</b><br>Email <code>demo@rtspanda.test</code> · Password <code>DemoAdmin!2026</code><br><span style="opacity:.75">Simulated cameras in your browser. No real video, nothing uploaded.</span></div>
+  </div>
+  <div class="shot"><img src="assets/screenshot.png" alt="RTSPanda camera view with live object detection boxes on a driveway camera" width="1360" height="900" fetchpriority="high"></div>
+</div></section>
+
+<section class="alt" style="padding:36px 0"><div class="wrap stats" role="list">
+  <div role="listitem"><b>16k+</b><span>lines of Go, TS &amp; Python</span></div><div role="listitem"><b>3</b><span>deployment modes</span></div><div role="listitem"><b>1</b><span>binary, embedded UI</span></div><div role="listitem"><b>11</b><span>tagged releases</span></div>
+</div></section>
+
+<section id="features"><div class="wrap">
+  <h2>What it does</h2><p class="sub">The pieces of an NVR, without the bloat — and with detection you can actually run on modest hardware.</p>
+  <div class="grid g3">
+    <div class="card"><div class="ic">📹</div><h3>Browser live view</h3><p>Low-latency HLS via mediamtx, multi-camera wall, snapshots and fullscreen — no plugins.</p></div>
+    <div class="card"><div class="ic">🎯</div><h3>AI detection</h3><p>Real-time YOLO (ONNX Runtime) for people, vehicles and animals, or Frigate. Ignore zones and per-class confidence cut false alarms.</p></div>
+    <div class="card"><div class="ic">💬</div><h3>Discord alerts</h3><p>Snapshot or clip attached, cooldowns, mention suppression and per-camera rules.</p></div>
+    <div class="card"><div class="ic">⏺</div><h3>Recording &amp; retention</h3><p>Manual or detection-triggered recording with retention policy and optional external storage.</p></div>
+    <div class="card"><div class="ic">🥧</div><h3>Runs on a Raspberry Pi</h3><p>Pi mode does ingest and view locally and offloads detection to snapshot AI (Claude/OpenAI) or a remote YOLO worker.</p></div>
+    <div class="card"><div class="ic">📈</div><h3>Observability</h3><p>Health and readiness endpoints, Prometheus metrics, stream reset and ARM thermal monitoring.</p></div>
+  </div>
+  <p style="margin-top:28px"><a class="btn primary" href="demo/">Try detection and ignore zones in the demo →</a></p>
+</div></section>
+
+<section id="modes" class="alt"><div class="wrap">
+  <h2>Pick your deployment mode</h2><p class="sub">One codebase, three runtime profiles. Toggle them in the demo’s Settings to see how behavior changes.</p>
+  <table><thead><tr><th>Mode</th><th>Hardware</th><th>Detection</th><th>Best for</th></tr></thead><tbody>
+    <tr><td><b>standard</b></td><td>x86 server, optional GPU</td><td>Real-time YOLO (local or remote worker)</td><td>Full production stack</td></tr>
+    <tr><td><b>pi</b></td><td>Raspberry Pi / ARM</td><td>Snapshot AI or remote YOLO worker</td><td>Edge ingest/view with alerts</td></tr>
+    <tr><td><b>viewer</b></td><td>Desktop or server</td><td>None</td><td>Live view and optional recording</td></tr>
+  </tbody></table>
+</div></section>
+
+<section id="architecture"><div class="wrap">
+  <h2>Architecture</h2><p class="sub">A single Go backend serves the API and the embedded React app, supervises the relay and talks to an optional detector.</p>
+  <pre class="arch" aria-label="Architecture diagram">
+  IP cameras ──RTSP──►  mediamtx relay ──LL-HLS──►  Go backend (REST API + embedded React UI) ──►  Browser
+                                                         │            │
+                                                         │            └─► SQLite · snapshots · recordings
+                                                         ▼
+                                       Detector: YOLO worker (FastAPI + ONNX) · Frigate · Snapshot AI
+                                                         │
+                                                         ▼
+                                           Discord alerts · Prometheus metrics</pre>
+</div></section>
+
+<section id="run" class="alt"><div class="wrap">
+  <h2>Run it yourself</h2><p class="sub">Docker Compose is the quickest path for a standard server.</p>
+  <ol class="steps">
+    <li><b>Clone and start</b><pre class="code">git clone https://github.com/248Tech/RTSPanda.git
+cd RTSPanda
+docker compose up --build -d</pre></li>
+    <li><b>Open the UI</b> at <code>http://&lt;host&gt;:8080</code> and add a camera with its RTSP URL.</li>
+    <li><b>Verify</b><pre class="code">curl -s http://127.0.0.1:8080/api/v1/health/ready</pre></li>
+  </ol>
+  <p style="margin-top:20px"><a href="https://github.com/248Tech/RTSPanda#readme">Full README</a> · <a href="https://github.com/248Tech/RTSPanda/blob/master/docs/android-no-docker.md">Android (Termux) guide</a> · <a href="https://github.com/248Tech/RTSPanda/blob/master/CHANGELOG.md">Changelog</a></p>
+</div></section>
+</main>
+<footer><div class="wrap"><span>© 2025–2026 Joe Wayne / 248Tech LLC · MIT License</span><span><a href="demo/">Live demo</a> · <a href="https://github.com/248Tech/RTSPanda">Source</a> · <a href="https://github.com/248Tech/RTSPanda/issues">Issues</a></span></div></footer>
+</body>
+</html>

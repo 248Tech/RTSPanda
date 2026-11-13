@@ -1,4 +1,32 @@
+<div align="center">
+
+<img src="site/assets/icon-192.png" alt="RTSPanda logo" width="96" height="96">
+
 # RTSPanda
+
+**Self-hosted RTSP camera platform — browser live view, recording, AI detection alerts and Discord notifications.**
+
+[![Live Demo](https://img.shields.io/badge/▶_Live_Demo-sign_in_as_admin-7c6cf0?style=for-the-badge)](https://248tech.github.io/RTSPanda/demo/)
+
+[![License: MIT](https://img.shields.io/github/license/248Tech/RTSPanda?style=flat-square&color=7c6cf0)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/248Tech/RTSPanda?style=flat-square&color=7c6cf0)](https://github.com/248Tech/RTSPanda/releases/latest)
+[![Last commit](https://img.shields.io/github/last-commit/248Tech/RTSPanda?style=flat-square&color=22c55e)](https://github.com/248Tech/RTSPanda/commits/master)
+[![Stars](https://img.shields.io/github/stars/248Tech/RTSPanda?style=flat-square&color=f59e0b)](https://github.com/248Tech/RTSPanda/stargazers)
+[![Issues](https://img.shields.io/github/issues/248Tech/RTSPanda?style=flat-square)](https://github.com/248Tech/RTSPanda/issues)
+![Go](https://img.shields.io/badge/Go-00ADD8?style=flat-square&logo=go&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![ONNX](https://img.shields.io/badge/ONNX-005CED?style=flat-square&logo=onnx&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Raspberry Pi](https://img.shields.io/badge/Raspberry_Pi-A22846?style=flat-square&logo=raspberrypi&logoColor=white)
+
+[**Live demo**](https://248tech.github.io/RTSPanda/demo/) · [Project site](https://248tech.github.io/RTSPanda/) · [Deployment modes](#deployment-modes) · [Changelog](CHANGELOG.md)
+
+<img src="site/assets/screenshot.png" alt="RTSPanda demo: live camera view with object detection" width="720">
+
+</div>
+
+> **Try it without installing anything:** open the [live demo](https://248tech.github.io/RTSPanda/demo/) and click **Enter as demo administrator** (or use `demo@rtspanda.test` / `DemoAdmin!2026`). It runs simulated cameras and detection in your browser — no real video, no backend.
 
 RTSPanda is a self-hosted RTSP camera platform for browser live view, recording, and detection workflows. It runs as a single Go backend with an embedded React frontend, a mediamtx relay process, and optional AI services based on deployment mode.
 

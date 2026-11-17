@@ -105,9 +105,9 @@ footer{border-top:1px solid var(--line);padding:32px 0;color:var(--muted);font-s
   <h2>What it does</h2><p class="sub">The pieces of an NVR, without the bloat — and with detection you can actually run on modest hardware.</p>
   <div class="grid g3">
     <div class="card"><div class="ic">📹</div><h3>Browser live view</h3><p>Low-latency HLS via mediamtx, multi-camera wall, snapshots and fullscreen — no plugins.</p></div>
-    <div class="card"><div class="ic">🎯</div><h3>AI detection</h3><p>Real-time YOLO (ONNX Runtime) for people, vehicles and animals, or Frigate. Ignore zones and per-class confidence cut false alarms.</p></div>
+    <div class="card"><div class="ic">🎯</div><h3>AI detection</h3><p>Local YOLO (ONNX Runtime, CPU) on sampled frames, every 30 s by default, or Frigate events via webhook. Ignore zones and per-class confidence cut false alarms.</p></div>
     <div class="card"><div class="ic">💬</div><h3>Discord alerts</h3><p>Snapshot or clip attached, cooldowns, mention suppression and per-camera rules.</p></div>
-    <div class="card"><div class="ic">⏺</div><h3>Recording &amp; retention</h3><p>Manual or detection-triggered recording with retention policy and optional external storage.</p></div>
+    <div class="card"><div class="ic">⏺</div><h3>Recording</h3><p>Per-camera recording toggle, saved as fMP4 in 1-hour segments; browse, download and delete from the UI. Automatic retention is not implemented yet.</p></div>
     <div class="card"><div class="ic">🥧</div><h3>Runs on a Raspberry Pi</h3><p>Pi mode does ingest and view locally and offloads detection to snapshot AI (Claude/OpenAI) or a remote YOLO worker.</p></div>
     <div class="card"><div class="ic">📈</div><h3>Observability</h3><p>Health and readiness endpoints, Prometheus metrics, stream reset and ARM thermal monitoring.</p></div>
   </div>
@@ -117,7 +117,7 @@ footer{border-top:1px solid var(--line);padding:32px 0;color:var(--muted);font-s
 <section id="modes" class="alt"><div class="wrap">
   <h2>Pick your deployment mode</h2><p class="sub">One codebase, three runtime profiles. Toggle them in the demo’s Settings to see how behavior changes.</p>
   <table><thead><tr><th>Mode</th><th>Hardware</th><th>Detection</th><th>Best for</th></tr></thead><tbody>
-    <tr><td><b>standard</b></td><td>x86 server, optional GPU</td><td>Real-time YOLO (local or remote worker)</td><td>Full production stack</td></tr>
+    <tr><td><b>standard</b></td><td>x86 server</td><td>YOLO on sampled frames (local or remote CPU worker)</td><td>Full stack</td></tr>
     <tr><td><b>pi</b></td><td>Raspberry Pi / ARM</td><td>Snapshot AI or remote YOLO worker</td><td>Edge ingest/view with alerts</td></tr>
     <tr><td><b>viewer</b></td><td>Desktop or server</td><td>None</td><td>Live view and optional recording</td></tr>
   </tbody></table>

@@ -193,11 +193,11 @@
   P.events.bind = () => $('#dtest').addEventListener('click', () => discordPreview());
   function discordPreview() { const e = events[0]; modal(`<h3 style="margin:0 0 8px">Discord notification preview</h3><div class="discord"><div class="t">🐼 RTSPanda</div><div style="margin-top:4px"><b>${e ? esc(e.cls) + ' detected' : 'Test notification'}</b> on <b>${e ? esc(camName(e.cam)) : 'Driveway'}</b>${e ? ' (' + Math.round(e.conf * 100) + '% confidence)' : ''}<br><small style="color:#b5bac1">${new Date().toLocaleString()} · cooldown 60 s · mentions suppressed</small></div>${e ? `<img alt="Detection snapshot" src="${e.img}">` : ''}</div><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" data-close>Close</button></div>`); }
 
-  P.recordings = () => `<div class="head"><h1>Recordings</h1><span class="sp"></span><span class="badge info">retention ${cfg.retention} days</span></div>
+  P.recordings = () => `<div class="head"><h1>Recordings</h1><span class="sp"></span></div>
     <div class="tw"><table><thead><tr><th>Camera</th><th>Started</th><th>Length</th><th>Size</th><th>Trigger</th><th></th></tr></thead><tbody>${recordings.map((r) => `<tr><td>${esc(camName(r.cam))}</td><td>${r.start.toLocaleString()}</td><td>${r.dur}s</td><td>${(r.dur * 0.5).toFixed(1)} MB</td><td>${r.auto ? '<span class="badge info">' + esc(r.cls) + '</span>' : '<span class="badge">manual</span>'}</td><td><div class="row"><button class="btn sm" data-play="${r.id}">Play</button><button class="btn sm" data-del="${r.id}">Delete</button></div></td></tr>`).join('') || '<tr><td colspan="6" class="empty">No recordings yet. Press Record on a camera, or wait for a detection (auto-record is on).</td></tr>'}</tbody></table></div>`;
   P.recordings.bind = () => {
     $$('[data-del]').forEach((b) => b.addEventListener('click', () => { recordings.splice(recordings.findIndex((r) => r.id === b.dataset.del), 1); render(); }));
-    $$('[data-play]').forEach((b) => b.addEventListener('click', () => { const r = recordings.find((x) => x.id === b.dataset.play); const c = cams.find((x) => x.id === r.cam); modal(`<h3 style="margin:0 0 8px">${esc(c.name)} · replay</h3><div class="viewer"><canvas data-cam="${c.id}" width="${W}" height="${H}"></canvas></div><p style="color:var(--muted);font-size:.8rem">Demo replays the simulated camera. Real recordings are MP4 files on disk with seek, download and retention clean-up.</p><div class="row" style="justify-content:flex-end"><button class="btn" data-close>Close</button></div>`); }));
+    $$('[data-play]').forEach((b) => b.addEventListener('click', () => { const r = recordings.find((x) => x.id === b.dataset.play); const c = cams.find((x) => x.id === r.cam); modal(`<h3 style="margin:0 0 8px">${esc(c.name)} · replay</h3><div class="viewer"><canvas data-cam="${c.id}" width="${W}" height="${H}"></canvas></div><p style="color:var(--muted);font-size:.8rem">Demo replays the simulated camera. Real recordings are fMP4 files on disk that you can play, download and delete.</p><div class="row" style="justify-content:flex-end"><button class="btn" data-close>Close</button></div>`); }));
   };
 
   const series = {}; const sd = (k, base, amp) => { const s = series[k] = series[k] || Array.from({ length: 48 }, () => base + rnd(-amp, amp)); s.push(Math.max(0, base + rnd(-amp, amp))); if (s.length > 48) s.shift(); return s; };
@@ -215,18 +215,18 @@
   };
 
   P.settings = () => `<div class="head"><h1>Settings</h1></div>
-    <div class="grid g2"><div class="card"><h3>Deployment mode</h3><div class="radio">${[['standard', 'Standard', 'x86 server · real-time YOLO detection (local or remote worker)'], ['pi', 'Raspberry Pi', 'ARM edge node · snapshot AI (Claude/OpenAI) or remote YOLO worker'], ['viewer', 'Viewer', 'Live view and optional recording only · no detection']].map(([v, t, d]) => `<label><input type="radio" name="mode" value="${v}" ${cfg.mode === v ? 'checked' : ''}><span><b>${t}</b><small>${d}</small></span></label>`).join('')}</div></div>
+    <div class="grid g2"><div class="card"><h3>Deployment mode</h3><div class="radio">${[['standard', 'Standard', 'x86 server · YOLO detection on sampled frames (local or remote worker)'], ['pi', 'Raspberry Pi', 'ARM edge node · snapshot AI (Claude/OpenAI) or remote YOLO worker'], ['viewer', 'Viewer', 'Live view and optional recording only · no detection']].map(([v, t, d]) => `<label><input type="radio" name="mode" value="${v}" ${cfg.mode === v ? 'checked' : ''}><span><b>${t}</b><small>${d}</small></span></label>`).join('')}</div></div>
     <div class="card"><h3>Detection &amp; alerts</h3>
       <div class="row sb" style="margin-bottom:12px"><span>AI worker</span><select class="in" id="aim" style="width:auto"><option value="local" ${cfg.aiMode === 'local' ? 'selected' : ''}>Local YOLO</option><option value="remote" ${cfg.aiMode === 'remote' ? 'selected' : ''}>Remote worker</option></select></div>
       <div class="row sb" style="margin-bottom:12px"><span>Snapshot AI</span><button class="sw ${cfg.snapshotAI ? 'on' : ''}" id="sai" aria-label="Snapshot AI"></button></div>
       <div class="row sb" style="margin-bottom:12px"><span>Auto-record on detection</span><button class="sw ${cfg.autoRecord ? 'on' : ''}" id="aut" aria-label="Auto record"></button></div>
       <label class="f" style="display:block;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:12px">Discord webhook<input class="in" id="wh" value="${esc(cfg.discord)}" style="margin-top:5px"></label>
-      <div class="row"><button class="btn sm" id="whtest">Send test notification</button><label style="display:flex;gap:8px;align-items:center;color:var(--muted);font-size:.82rem">Retention <input class="in" id="ret" type="number" min="1" max="90" value="${cfg.retention}" style="width:70px"> days</label></div></div></div>`;
+      <div class="row"><button class="btn sm" id="whtest">Send test notification</button></div></div></div>`;
   P.settings.bind = () => {
-    $$('input[name=mode]').forEach((r) => r.addEventListener('change', () => { cfg.mode = r.value; toast('Mode: ' + r.value + (r.value === 'viewer' ? ' — detection disabled' : r.value === 'pi' ? ' — snapshot AI every 3 s' : ' — real-time YOLO')); render(); }));
+    $$('input[name=mode]').forEach((r) => r.addEventListener('change', () => { cfg.mode = r.value; toast('Mode: ' + r.value + (r.value === 'viewer' ? ' — detection disabled' : r.value === 'pi' ? ' — snapshot AI every 3 s' : ' — YOLO detection')); render(); }));
     $('#aim').addEventListener('change', (e) => { cfg.aiMode = e.target.value; toast('AI worker: ' + e.target.value); });
     $('#sai').addEventListener('click', (e) => { cfg.snapshotAI = !cfg.snapshotAI; e.target.classList.toggle('on'); }); $('#aut').addEventListener('click', (e) => { cfg.autoRecord = !cfg.autoRecord; e.target.classList.toggle('on'); });
-    $('#wh').addEventListener('input', (e) => (cfg.discord = e.target.value)); $('#ret').addEventListener('change', (e) => (cfg.retention = +e.target.value || 14)); $('#whtest').addEventListener('click', () => discordPreview());
+    $('#wh').addEventListener('input', (e) => (cfg.discord = e.target.value)); $('#whtest').addEventListener('click', () => discordPreview());
   };
 
   /* ---------- router / auth ---------- */

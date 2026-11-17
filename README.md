@@ -6,7 +6,7 @@
 
 **Self-hosted RTSP camera platform — browser live view, recording, AI detection alerts and Discord notifications.**
 
-[![Live Demo](https://img.shields.io/badge/▶_Live_Demo-sign_in_as_admin-7c6cf0?style=for-the-badge)](https://248tech.github.io/RTSPanda/demo/)
+[![Interactive demo](https://img.shields.io/badge/▶_Interactive_demo-simulated_in_browser-7c6cf0?style=for-the-badge)](https://248tech.github.io/RTSPanda/demo/)
 
 [![License: MIT](https://img.shields.io/github/license/248Tech/RTSPanda?style=flat-square&color=7c6cf0)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/248Tech/RTSPanda?style=flat-square&color=7c6cf0)](https://github.com/248Tech/RTSPanda/releases/latest)
@@ -48,9 +48,9 @@ This guide is the production operator walkthrough for RTSPanda v0.1.1:
 
 RTSPanda has three runtime modes. Pick one before setup.
 
-| Mode | Target Hardware | AI Path | Real-time Detection | Typical Use |
+| Mode | Target Hardware | AI Path | Local YOLO Detection | Typical Use |
 |------|------------------|--------|---------------------|-------------|
-| `standard` | x86 server, optional GPU | Local/remote YOLO worker | Yes | Full production stack |
+| `standard` | x86 server | Local/remote YOLO worker (CPU, ONNX Runtime) | Yes: samples one frame per camera every 30 s by default | Full stack |
 | `pi` | Raspberry Pi / ARM | Snapshot AI (Claude/OpenAI) and/or remote YOLO worker | No (local) | Edge ingest/view + alerts |
 | `viewer` | Desktop/server | None | No | Live view + optional recording only |
 
@@ -83,7 +83,7 @@ All supported setup paths are listed here:
 - Docker Engine 24+ and Docker Compose plugin
 - Open ports: `8080` (app), `8888` (HLS served via app reverse path), `9997/9998` internal mediamtx API/metrics
 - Stable LAN access to camera RTSP endpoints
-- For Standard mode with multiple cameras, CPU with headroom and GPU recommended
+- For Standard mode with multiple cameras, CPU headroom (the YOLO worker runs on CPU; there is no GPU execution path yet)
 - For Pi mode with Snapshot AI, API key for Claude or OpenAI
 
 ### 2. Clone and Baseline Config
@@ -93,11 +93,7 @@ git clone https://github.com/248Tech/RTSPanda.git
 cd RTSPanda
 ```
 
-Optional but recommended:
-
-```bash
-cp .env.example .env 2>/dev/null || true
-```
+Configuration is read from environment variables. Docker Compose picks up a `.env` file in the repo root if you create one; see the [Configuration Reference](#configuration-reference) for the variables and their defaults.
 
 ### 3. Choose and Execute a Setup Method
 
@@ -274,7 +270,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/streams/reset
 | `MEDIAMTX_HLS_SEGMENT_COUNT` | `3` | Playlist segment count |
 | `MEDIAMTX_HLS_SEGMENT_DURATION` | `2s` | Segment size |
 | `MEDIAMTX_HLS_PART_DURATION` | `200ms` | LL-HLS part duration |
-| `MEDIAMTX_SOURCE_ON_DEMAND` | `false` | Streams initialize proactively |
+| `MEDIAMTX_SOURCE_ON_DEMAND` | `false` (binary), `true` (docker-compose) | `false`: streams connect proactively. `true`: a camera connects when first viewed and closes after `MEDIAMTX_SOURCE_ON_DEMAND_CLOSE_AFTER` (`10s` in Compose) |
 
 ### Detection (Standard mode)
 
@@ -308,6 +304,8 @@ curl -X POST http://127.0.0.1:8080/api/v1/streams/reset
 |---------|---------|------|
 | `AUTH_ENABLED` | `false` | Enable API token auth |
 | `AUTH_TOKEN` | empty | Required when auth enabled |
+
+Auth protects the `/api/` routes. The `/hls/` video proxy and `/metrics` are **not** behind the token, so do not expose port 8080 beyond a trusted network or put RTSPanda behind a reverse proxy that enforces its own authentication.
 
 ---
 
@@ -404,6 +402,23 @@ cd backend && go test ./...
 cd frontend && npm run test -- --config vitest.config.ts
 cd ai_worker && python -m pytest -q
 ```
+
+Go tests cover auth, detections, logs and stream management. The API handlers, recordings, notifications and Frigate ingestion do not have automated tests yet, and CI currently deploys the project site only; it does not run these suites.
+
+---
+
+## Status and Limitations
+
+**Status:** beta. Single maintainer; releases v0.0.1 to v0.1.1 shipped March 2026. Issues and pull requests are welcome.
+
+Known limitations:
+
+- **Detection is periodic, not continuous.** The YOLO worker analyzes one ffmpeg-captured frame per camera every 30 s by default (`DETECTION_SAMPLE_INTERVAL_SECONDS`). It runs on CPU only.
+- **Frigate support is a webhook receiver.** Frigate posts events to `POST /api/v1/frigate/events`; RTSPanda optionally fetches the event snapshot when `FRIGATE_BASE_URL` is set. There is no MQTT client.
+- **No automatic recording retention.** Recording is enabled per camera and saved as 1-hour fMP4 segments you can list, download and delete; old files are not pruned automatically.
+- **Single shared auth token**, off by default, and it does not cover `/hls/` or `/metrics` (see [Security](#security)).
+- **Optional cloud AI.** Detection in standard mode is local. Discord captions (OpenAI) and Pi snapshot AI (Claude or OpenAI) send frames to those providers only when you configure an API key.
+- **Prometheus metrics are minimal:** global counters and an average detection latency, not per-camera series.
 
 ---
 
